@@ -1,0 +1,67 @@
+{
+  "project_info": {
+    "project_number": "785469526658",
+    "project_id": "cmandili-c1ade",
+    "storage_bucket": "cmandili-c1ade.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:785469526658:android:3d0649c6cd7ae9d43f5a9b",
+        "android_client_info": {
+          "package_name": "com.cmandili.driver"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCxJormHyNaQHljybifi1g5hRmRjBhX2oM"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:785469526658:android:e410e93d238969bf3f5a9b",
+        "android_client_info": {
+          "package_name": "com.cmandili.mobile"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCxJormHyNaQHljybifi1g5hRmRjBhX2oM"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:785469526658:android:4ec86a69e4f26ca33f5a9b",
+        "android_client_info": {
+          "package_name": "com.cmandili.partner"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCxJormHyNaQHljybifi1g5hRmRjBhX2oM"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

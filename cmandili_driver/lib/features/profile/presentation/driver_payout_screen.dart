@@ -2,41 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/theme/app_colors.dart';
-import '../../orders/providers/driver_orders_provider.dart';
-
-// Tracks driver online state so the toggle can reflect it in real time.
-final _driverOnlineProvider = StateNotifierProvider<_OnlineNotifier, bool>((ref) {
-  return _OnlineNotifier(ref);
-});
-
-class _OnlineNotifier extends StateNotifier<bool> {
-  final Ref _ref;
-  _OnlineNotifier(this._ref) : super(false) {
-    _init();
-  }
-
-  Future<void> _init() async {
-    final driverId = await _ref.read(currentDriverIdProvider.future);
-    if (driverId == null) return;
-    final row = await Supabase.instance.client
-        .from('drivers')
-        .select('is_online')
-        .eq('id', driverId)
-        .maybeSingle();
-    if (mounted) state = row?['is_online'] as bool? ?? false;
-  }
-
-  Future<void> toggle() async {
-    final driverId = await _ref.read(currentDriverIdProvider.future);
-    if (driverId == null) return;
-    final next = !state;
-    state = next;
-    await Supabase.instance.client
-        .from('drivers')
-        .update({'is_online': next})
-        .eq('id', driverId);
-  }
-}
+import '../../orders/providers/driver_online_provider.dart';
 
 class DriverPayoutScreen extends ConsumerStatefulWidget {
   const DriverPayoutScreen({super.key});
@@ -114,7 +80,7 @@ class _DriverPayoutScreenState extends ConsumerState<DriverPayoutScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final isOnline = ref.watch(_driverOnlineProvider);
+    final isOnline = ref.watch(driverOnlineProvider);
 
     return Scaffold(
       appBar: AppBar(
@@ -174,7 +140,7 @@ class _DriverPayoutScreenState extends ConsumerState<DriverPayoutScreen> {
                         Switch.adaptive(
                           value: isOnline,
                           activeColor: Colors.green,
-                          onChanged: (_) => ref.read(_driverOnlineProvider.notifier).toggle(),
+                          onChanged: (next) => ref.read(driverOnlineProvider.notifier).setOnline(next),
                         ),
                       ],
                     ),

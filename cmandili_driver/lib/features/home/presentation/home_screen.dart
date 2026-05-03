@@ -1,8 +1,13 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:geocoding/geocoding.dart';
+import 'package:geolocator/geolocator.dart';
 import '../../../core/theme/app_colors.dart';
+import '../../../core/widgets/app_map.dart';
 import '../../orders/presentation/available_orders_screen.dart';
 import '../../orders/presentation/order_tracking_screen.dart';
+import '../../orders/providers/driver_online_provider.dart';
 import '../../orders/providers/driver_orders_provider.dart';
 import '../../profile/presentation/profile_screen.dart';
 import '../../earnings/presentation/earnings_screen.dart';
@@ -111,17 +116,153 @@ class _NavItem extends StatelessWidget {
   }
 }
 
-class _DashboardTab extends ConsumerWidget {
+class _DashboardTab extends ConsumerStatefulWidget {
   final VoidCallback onGoToOrders;
   const _DashboardTab({required this.onGoToOrders});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<_DashboardTab> createState() => _DashboardTabState();
+}
+
+class _DashboardTabState extends ConsumerState<_DashboardTab> {
+  final AppMapController _mapController = AppMapController();
+  StreamSubscription<Position>? _positionStream;
+  double? _myLat;
+  double? _myLng;
+  String? _locationError;
+  bool _firstFixApplied = false;
+  String? _placeName;
+  String? _cityName;
+  // Throttle reverse-geocoding: don't hit the platform geocoder on every GPS
+  // tick — only when the user has moved >100m from the last reverse-lookup.
+  double? _lastGeocodedLat;
+  double? _lastGeocodedLng;
+
+  @override
+  void initState() {
+    super.initState();
+    _startLocationTracking();
+  }
+
+  @override
+  void dispose() {
+    _positionStream?.cancel();
+    _mapController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _startLocationTracking() async {
+    // Verify the OS-level location switch is on. If not, GPS will return
+    // a useless fallback (or nothing) — surface that to the user.
+    if (!await Geolocator.isLocationServiceEnabled()) {
+      if (mounted) setState(() => _locationError = 'Location is off. Turn on Location in your phone settings.');
+      return;
+    }
+
+    LocationPermission permission = await Geolocator.checkPermission();
+    if (permission == LocationPermission.denied) {
+      permission = await Geolocator.requestPermission();
+    }
+    if (permission == LocationPermission.denied ||
+        permission == LocationPermission.deniedForever) {
+      if (mounted) setState(() => _locationError = 'Location permission denied. Grant it in app settings.');
+      return;
+    }
+
+    // Force a FRESH high-accuracy GPS fix (no cached/last-known fallback) so
+    // we don't anchor the map on a stale location reported by the OS.
+    try {
+      final fresh = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.bestForNavigation,
+        timeLimit: const Duration(seconds: 15),
+        forceAndroidLocationManager: false,
+      );
+      _applyFix(fresh);
+    } catch (_) {
+      // Fall through — the position stream below will deliver a fix soon.
+    }
+
+    _positionStream = Geolocator.getPositionStream(
+      locationSettings: const LocationSettings(
+        accuracy: LocationAccuracy.bestForNavigation,
+        distanceFilter: 10,
+      ),
+    ).listen((pos) {
+      _applyFix(pos);
+    });
+  }
+
+  void _applyFix(Position pos) {
+    if (!mounted) return;
+    setState(() {
+      _myLat = pos.latitude;
+      _myLng = pos.longitude;
+      _locationError = null;
+    });
+    if (!_firstFixApplied) {
+      _firstFixApplied = true;
+      _mapController.animateToPoint(pos.latitude, pos.longitude, zoom: 16);
+    }
+    _maybeResolveAddress(pos.latitude, pos.longitude);
+  }
+
+  Future<void> _maybeResolveAddress(double lat, double lng) async {
+    if (_lastGeocodedLat != null && _lastGeocodedLng != null) {
+      final movedMeters = Geolocator.distanceBetween(
+        _lastGeocodedLat!, _lastGeocodedLng!, lat, lng,
+      );
+      if (movedMeters < 100) return;
+    }
+    _lastGeocodedLat = lat;
+    _lastGeocodedLng = lng;
+    try {
+      final placemarks = await placemarkFromCoordinates(lat, lng);
+      if (!mounted || placemarks.isEmpty) return;
+      final p = placemarks.first;
+      final street = [p.street, p.subLocality]
+          .where((s) => s != null && s.isNotEmpty)
+          .join(', ');
+      final city = p.locality?.isNotEmpty == true
+          ? p.locality
+          : (p.subAdministrativeArea?.isNotEmpty == true
+              ? p.subAdministrativeArea
+              : p.administrativeArea);
+      setState(() {
+        _placeName = street.isNotEmpty ? street : null;
+        _cityName = city;
+      });
+    } catch (_) {
+      // Reverse geocoding can fail offline / rate-limited — leave previous values.
+    }
+  }
+
+  void _recenter() {
+    if (_myLat != null && _myLng != null) {
+      _mapController.animateToPoint(_myLat!, _myLng!, zoom: 16);
+    }
+  }
+
+  void _openFullscreenMap() {
+    if (_myLat == null || _myLng == null) return;
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => _FullscreenMapScreen(
+          initialLat: _myLat!,
+          initialLng: _myLng!,
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final activeAsync = ref.watch(activeDeliveryProvider);
     final availableAsync = ref.watch(availableOrdersProvider);
 
+    final isOnline = ref.watch(driverOnlineProvider);
     final availableCount = availableAsync.value?.length ?? 0;
     final hasActive = activeAsync.value != null;
+    final hasLocation = _myLat != null && _myLng != null;
 
     return Scaffold(
       body: CustomScrollView(
@@ -146,18 +287,53 @@ class _DashboardTab extends ConsumerWidget {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(
-                          'Driver Dashboard',
-                          style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                                color: Colors.white,
-                                fontWeight: FontWeight.w700,
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                'Driver Dashboard',
+                                style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                                      color: Colors.white,
+                                      fontWeight: FontWeight.w700,
+                                    ),
                               ),
+                            ),
+                            _OnlineStatusPill(isOnline: isOnline),
+                            const SizedBox(width: 8),
+                            Switch.adaptive(
+                              value: isOnline,
+                              activeColor: Colors.white,
+                              activeTrackColor: Colors.green.shade400,
+                              inactiveThumbColor: Colors.white,
+                              inactiveTrackColor: Colors.white24,
+                              onChanged: (next) =>
+                                  ref.read(driverOnlineProvider.notifier).setOnline(next),
+                            ),
+                          ],
                         ),
                         const SizedBox(height: 4),
                         Text(
-                          hasActive ? 'You have an active delivery' : 'Ready for orders',
+                          hasActive
+                              ? 'You have an active delivery'
+                              : (isOnline ? 'Ready for orders' : "You're offline — flip the switch to start"),
                           style: const TextStyle(color: Colors.white70, fontSize: 14),
                         ),
+                        if (_cityName != null) ...[
+                          const SizedBox(height: 6),
+                          Row(
+                            children: [
+                              const Icon(Icons.place_outlined, size: 14, color: Colors.white70),
+                              const SizedBox(width: 4),
+                              Flexible(
+                                child: Text(
+                                  _cityName!,
+                                  style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w600),
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
                         const Spacer(),
                         Row(
                           children: [
@@ -189,6 +365,101 @@ class _DashboardTab extends ConsumerWidget {
                     const SizedBox(height: 24),
                   ],
 
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text('Your Location', style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
+                      ),
+                      if (hasLocation)
+                        TextButton.icon(
+                          onPressed: _openFullscreenMap,
+                          icon: const Icon(Icons.open_in_full, size: 16),
+                          label: const Text('Expand'),
+                          style: TextButton.styleFrom(
+                            foregroundColor: AppColors.primary,
+                            padding: const EdgeInsets.symmetric(horizontal: 8),
+                          ),
+                        ),
+                    ],
+                  ),
+                  if (_placeName != null || _cityName != null) ...[
+                    const SizedBox(height: 4),
+                    Row(
+                      children: [
+                        const Icon(Icons.location_on, size: 14, color: AppColors.primary),
+                        const SizedBox(width: 4),
+                        Expanded(
+                          child: Text(
+                            [_placeName, _cityName].where((s) => s != null && s.isNotEmpty).join(' • '),
+                            style: const TextStyle(color: AppColors.textSecondary, fontSize: 13),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                  const SizedBox(height: 12),
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(16),
+                    child: SizedBox(
+                      height: 280,
+                      child: hasLocation
+                          ? Stack(
+                              children: [
+                                Positioned.fill(
+                                  child: AppMap(
+                                    controller: _mapController,
+                                    initialLatitude: _myLat!,
+                                    initialLongitude: _myLng!,
+                                    initialZoom: 15,
+                                    showUserLocationPuck: true,
+                                    markers: {
+                                      AppMapMarker(
+                                        id: 'driver',
+                                        latitude: _myLat!,
+                                        longitude: _myLng!,
+                                        kind: AppMapMarkerKind.driver,
+                                        title: 'You',
+                                      ),
+                                    },
+                                  ),
+                                ),
+                                Positioned(
+                                  top: 12,
+                                  right: 12,
+                                  child: _MapMiniButton(
+                                    icon: Icons.my_location,
+                                    onTap: _recenter,
+                                    tooltip: 'Recenter',
+                                  ),
+                                ),
+                              ],
+                            )
+                          : Container(
+                              color: AppColors.background,
+                              alignment: Alignment.center,
+                              padding: const EdgeInsets.all(16),
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(
+                                    _locationError != null ? Icons.location_off : Icons.location_searching,
+                                    color: AppColors.textLight,
+                                    size: 32,
+                                  ),
+                                  const SizedBox(height: 8),
+                                  Text(
+                                    _locationError ?? 'Locating you…',
+                                    style: const TextStyle(color: AppColors.textSecondary),
+                                    textAlign: TextAlign.center,
+                                  ),
+                                ],
+                              ),
+                            ),
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+
                   Text('Available Orders', style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
                   const SizedBox(height: 4),
                   Text('$availableCount order(s) waiting for a driver', style: const TextStyle(color: AppColors.textSecondary, fontSize: 13)),
@@ -198,7 +469,7 @@ class _DashboardTab extends ConsumerWidget {
                     width: double.infinity,
                     height: 48,
                     child: ElevatedButton.icon(
-                      onPressed: onGoToOrders,
+                      onPressed: widget.onGoToOrders,
                       icon: const Icon(Icons.delivery_dining_rounded),
                       label: const Text('View Available Orders', style: TextStyle(fontWeight: FontWeight.bold)),
                       style: ElevatedButton.styleFrom(
@@ -320,6 +591,164 @@ class _NoActiveDelivery extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _MapMiniButton extends StatelessWidget {
+  final IconData icon;
+  final VoidCallback onTap;
+  final String? tooltip;
+  const _MapMiniButton({required this.icon, required this.onTap, this.tooltip});
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.white,
+      shape: const CircleBorder(),
+      elevation: 4,
+      child: InkWell(
+        customBorder: const CircleBorder(),
+        onTap: onTap,
+        child: Tooltip(
+          message: tooltip ?? '',
+          child: Padding(
+            padding: const EdgeInsets.all(10),
+            child: Icon(icon, size: 20, color: AppColors.primary),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _FullscreenMapScreen extends StatefulWidget {
+  final double initialLat;
+  final double initialLng;
+  const _FullscreenMapScreen({required this.initialLat, required this.initialLng});
+
+  @override
+  State<_FullscreenMapScreen> createState() => _FullscreenMapScreenState();
+}
+
+class _FullscreenMapScreenState extends State<_FullscreenMapScreen> {
+  final AppMapController _controller = AppMapController();
+  StreamSubscription<Position>? _positionStream;
+  late double _lat = widget.initialLat;
+  late double _lng = widget.initialLng;
+
+  @override
+  void initState() {
+    super.initState();
+    _positionStream = Geolocator.getPositionStream(
+      locationSettings: const LocationSettings(
+        accuracy: LocationAccuracy.high,
+        distanceFilter: 20,
+      ),
+    ).listen((pos) {
+      if (!mounted) return;
+      setState(() {
+        _lat = pos.latitude;
+        _lng = pos.longitude;
+      });
+    });
+  }
+
+  @override
+  void dispose() {
+    _positionStream?.cancel();
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _recenter() => _controller.animateToPoint(_lat, _lng, zoom: 16);
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: Stack(
+        children: [
+          Positioned.fill(
+            child: AppMap(
+              controller: _controller,
+              initialLatitude: widget.initialLat,
+              initialLongitude: widget.initialLng,
+              initialZoom: 15,
+              showUserLocationPuck: true,
+              markers: {
+                AppMapMarker(
+                  id: 'driver',
+                  latitude: _lat,
+                  longitude: _lng,
+                  kind: AppMapMarkerKind.driver,
+                  title: 'You',
+                ),
+              },
+            ),
+          ),
+          SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: Row(
+                children: [
+                  _MapMiniButton(
+                    icon: Icons.arrow_back,
+                    onTap: () => Navigator.pop(context),
+                    tooltip: 'Back',
+                  ),
+                ],
+              ),
+            ),
+          ),
+          Positioned(
+            right: 16,
+            bottom: 24,
+            child: _MapMiniButton(
+              icon: Icons.my_location,
+              onTap: _recenter,
+              tooltip: 'Recenter',
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _OnlineStatusPill extends StatelessWidget {
+  final bool isOnline;
+  const _OnlineStatusPill({required this.isOnline});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.18),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 8,
+            height: 8,
+            decoration: BoxDecoration(
+              color: isOnline ? Colors.greenAccent : Colors.white60,
+              shape: BoxShape.circle,
+            ),
+          ),
+          const SizedBox(width: 6),
+          Text(
+            isOnline ? 'Online' : 'Offline',
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
       ),
     );
   }

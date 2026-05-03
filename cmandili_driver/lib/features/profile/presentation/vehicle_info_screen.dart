@@ -3,7 +3,12 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/theme/app_colors.dart';
 
 class VehicleInfoScreen extends StatefulWidget {
-  const VehicleInfoScreen({super.key});
+  const VehicleInfoScreen({super.key, this.onSaved});
+
+  /// Called after a successful save. Used by the post-auth gate to re-check
+  /// whether the driver can now enter the app, since this screen is rendered
+  /// as the root of an inner Navigator where Navigator.pop is a no-op.
+  final VoidCallback? onSaved;
 
   @override
   State<VehicleInfoScreen> createState() => _VehicleInfoScreenState();
@@ -60,20 +65,30 @@ class _VehicleInfoScreenState extends State<VehicleInfoScreen> {
     if (!_formKey.currentState!.validate()) return;
     setState(() => _saving = true);
     try {
-      final userId = Supabase.instance.client.auth.currentUser?.id;
-      if (userId == null) throw 'Not authenticated';
-      await Supabase.instance.client.from('drivers').update({
+      final user = Supabase.instance.client.auth.currentUser;
+      if (user == null) throw 'Not authenticated';
+
+      // Upsert so this works whether or not a drivers row already exists for
+      // this user. update().eq() silently writes 0 rows if the row is missing,
+      // which would leave vehicle_type null and trap the user on this screen.
+      await Supabase.instance.client.from('drivers').upsert({
+        'user_id': user.id,
         'vehicle_type': _vehicleType,
         'vehicle_make': _makeCtrl.text.trim(),
         'vehicle_model': _modelCtrl.text.trim(),
         'vehicle_plate': _plateCtrl.text.trim(),
         'vehicle_color': _colorCtrl.text.trim(),
-      }).eq('user_id', userId);
+      }, onConflict: 'user_id');
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Vehicle info updated'), backgroundColor: Colors.green),
+          const SnackBar(content: Text('Vehicle info saved'), backgroundColor: Colors.green),
         );
-        Navigator.pop(context);
+        if (widget.onSaved != null) {
+          widget.onSaved!();
+        } else if (Navigator.of(context).canPop()) {
+          Navigator.pop(context);
+        }
       }
     } catch (e) {
       if (mounted) {

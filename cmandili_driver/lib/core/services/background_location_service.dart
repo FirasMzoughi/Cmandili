@@ -1,8 +1,11 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:ui';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_background_service/flutter_background_service.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -19,6 +22,29 @@ class BackgroundLocationService {
   static final FlutterBackgroundService _service = FlutterBackgroundService();
 
   static Future<void> initialize() async {
+    // Android 13+ requires the POST_NOTIFICATIONS runtime permission, otherwise
+    // startForeground crashes with CannotPostForegroundServiceNotificationException.
+    if (Platform.isAndroid) {
+      final status = await Permission.notification.status;
+      if (!status.isGranted) {
+        await Permission.notification.request();
+      }
+
+      // Explicitly register the channel the foreground service will post to.
+      // flutter_background_service relies on this existing — if missing,
+      // the OS rejects the notification and kills the process.
+      const channel = AndroidNotificationChannel(
+        _kNotifChannelId,
+        'Cmandili Driver Location',
+        description: 'Keeps GPS tracking active while delivering',
+        importance: Importance.low,
+      );
+      await FlutterLocalNotificationsPlugin()
+          .resolvePlatformSpecificImplementation<
+              AndroidFlutterLocalNotificationsPlugin>()
+          ?.createNotificationChannel(channel);
+    }
+
     await _service.configure(
       androidConfiguration: AndroidConfiguration(
         onStart: _onStart,
@@ -46,6 +72,18 @@ class BackgroundLocationService {
     await prefs.setString(_kDriverIdKey, driverId);
     await prefs.setString(_kDeliveryIdKey, deliveryId);
     _service.startService();
+  }
+
+  /// Call when driver toggles online but has no active delivery yet.
+  /// Starts the foreground service (persistent "online" notification) so
+  /// Android OEMs keep FCM push alive even when the app is backgrounded.
+  static Future<void> startOnlinePresence({required String driverId}) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_kDriverIdKey, driverId);
+    await prefs.remove(_kDeliveryIdKey);
+    if (!(await _service.isRunning())) {
+      _service.startService();
+    }
   }
 
   /// Call when delivery is marked delivered or cancelled.

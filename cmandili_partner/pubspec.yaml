@@ -15,10 +15,10 @@ dependencies:
   # State Management
   flutter_riverpod: ^2.4.9
   
-  # Firebase (Removed for design-only mode)
-  # firebase_core: ^2.24.2
-  # firebase_auth: ^4.15.3
-  # cloud_firestore: ^4.13.6
+  # Firebase push notifications
+  firebase_core: ^2.27.0
+  firebase_messaging: ^14.7.20
+  flutter_local_notifications: ^17.0.0
   
   # Authentication (Removed for design-only mode)
   google_sign_in: ^6.1.6
@@ -26,7 +26,7 @@ dependencies:
   supabase_flutter: ^2.3.0
   
   # Maps & Location
-  google_maps_flutter: ^2.5.0
+  mapbox_maps_flutter: ^2.3.0
   geolocator: ^10.1.0
   geocoding: ^2.1.1
   
@@ -74,7 +74,7 @@ dev_dependencies:
 flutter_launcher_icons:
   android: "launcher_icon"
   ios: true
-  image_path: "assets/images/logo.png"
+  image_path: "assets/images/logo_partner.png"
   min_sdk_android: 21 # android min sdk min:16, default 21
 
 flutter:

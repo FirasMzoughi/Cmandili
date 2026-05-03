@@ -1,64 +1,9 @@
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import '../../cart/data/models/cart_item.dart';
-import '../../checkout/data/models/delivery_address.dart';
-import '../data/models/order.dart';
+import 'models/order.dart';
 
 class OrderRepository {
   final _supabase = Supabase.instance.client;
-
-  // Create a new order
-  Future<String?> createOrder({
-    required List<CartItem> items,
-    required DeliveryAddress deliveryAddress,
-    required double subtotal,
-    required double deliveryFee,
-    required double total,
-    required OrderType orderType,
-    String? restaurantId,
-    String? supermarketId,
-    String? notes,
-    String paymentMethod = 'cash',
-  }) async {
-    try {
-      final userId = _supabase.auth.currentUser?.id;
-      if (userId == null) throw 'User not authenticated';
-
-      // Insert order
-      final orderResponse = await _supabase.from('orders').insert({
-        'user_id': userId,
-        'restaurant_id': restaurantId,
-        'supermarket_id': supermarketId,
-        'status': 'pending',
-        'subtotal': subtotal,
-        'delivery_fee': deliveryFee,
-        'total': total,
-        'payment_method': paymentMethod,
-        'notes': notes,
-        'delivery_address': deliveryAddress.toJson(),
-        'order_type': orderType.toString().split('.').last,
-      }).select().single();
-
-      final orderId = orderResponse['id'];
-
-      // Insert order items
-      for (final item in items) {
-        await _supabase.from('order_items').insert({
-          'order_id': orderId,
-          'food_item_id': item.type == CartItemType.restaurant ? item.foodItem?.id : null,
-          'grocery_item_id': item.type == CartItemType.grocery ? item.groceryItem?.id : null,
-          'quantity': item.quantity,
-          'price': item.price,
-          'options': item.customization?.toJson() ?? {},
-        });
-      }
-
-      return orderId;
-    } catch (e) {
-      debugPrint('Error creating order: $e');
-      return null;
-    }
-  }
 
   // Fetch user's orders
   Future<List<Order>> getUserOrders() async {

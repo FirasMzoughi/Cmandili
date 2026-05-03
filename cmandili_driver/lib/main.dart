@@ -13,18 +13,32 @@ import 'l10n/app_localizations.dart';
 import 'core/providers/localization_provider.dart';
 import 'core/providers/theme_provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:firebase_core/firebase_core.dart';
 import 'core/config/supabase_config.dart';
+import 'core/push/push_service.dart';
+import 'firebase_options.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
   await dotenv.load(fileName: ".env");
 
+  // Mapbox runtime token. Public (pk.*) only — never the sk.* download token.
+  // The map view will fail to render if this is empty or wrong.
+  MapboxOptions.setAccessToken(dotenv.env['MAPBOX_PUBLIC_TOKEN'] ?? '');
+
   await Supabase.initialize(
     url: SupabaseConfig.url,
     anonKey: SupabaseConfig.anonKey,
   );
+
+  // Firebase + FCM push. If init fails, app still runs but push is disabled.
+  try {
+    await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+    await PushService.instance.initialize();
+  } catch (_) {}
 
   // Persist Supabase credentials so the background isolate can initialize them.
   final prefs = await SharedPreferences.getInstance();
@@ -105,6 +119,13 @@ class _PostAuthGateState extends State<_PostAuthGate> {
     _vehicleReady = _checkVehicle();
   }
 
+  void _recheck() {
+    if (!mounted) return;
+    setState(() {
+      _vehicleReady = _checkVehicle();
+    });
+  }
+
   Future<bool> _checkVehicle() async {
     final userId = Supabase.instance.client.auth.currentUser?.id;
     if (userId == null) return false;
@@ -137,13 +158,9 @@ class _PostAuthGateState extends State<_PostAuthGate> {
         return PopScope(
           canPop: false,
           child: Navigator(
-            observers: [_GatePopObserver(onPop: () {
-              setState(() {
-                _vehicleReady = _checkVehicle();
-              });
-            })],
+            observers: [_GatePopObserver(onPop: _recheck)],
             onGenerateRoute: (_) => MaterialPageRoute(
-              builder: (_) => const VehicleInfoScreen(),
+              builder: (_) => VehicleInfoScreen(onSaved: _recheck),
             ),
           ),
         );

@@ -83,12 +83,11 @@ class AuthRepository {
   }
 
   Future<void> _ensureDriverRow(String userId, String name, String email) async {
+    // Only columns that exist on public.drivers — full_name/email live on
+    // auth.users metadata, not on this table.
     await _supabase.from('drivers').upsert({
       'user_id': userId,
-      'full_name': name,
-      'email': email,
       'is_online': false,
-      'is_approved': false,
     }, onConflict: 'user_id');
   }
 

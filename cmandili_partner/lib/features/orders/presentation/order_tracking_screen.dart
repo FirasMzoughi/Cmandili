@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/utils/currency_formatter.dart';
+import '../../../core/widgets/app_map.dart';
 import '../data/models/order.dart';
 import '../providers/order_provider.dart';
 import '../providers/partner_orders_provider.dart';
@@ -22,11 +22,11 @@ class OrderTrackingScreen extends ConsumerStatefulWidget {
 }
 
 class _OrderTrackingScreenState extends ConsumerState<OrderTrackingScreen> {
-  GoogleMapController? _mapController;
+  final AppMapController _mapController = AppMapController();
 
   @override
   void dispose() {
-    _mapController?.dispose();
+    _mapController.dispose();
     super.dispose();
   }
 
@@ -58,52 +58,34 @@ class _OrderTrackingScreenState extends ConsumerState<OrderTrackingScreen> {
           // Map — shown when driver location is available
           if (currentOrder.status == OrderStatus.onTheWay &&
               currentOrder.driverLatitude != null)
-            GoogleMap(
-              initialCameraPosition: CameraPosition(
-                target: LatLng(
-                  currentOrder.deliveryAddress.latitude,
-                  currentOrder.deliveryAddress.longitude,
-                ),
-                zoom: 14,
-              ),
+            AppMap(
+              controller: _mapController,
+              initialLatitude: currentOrder.deliveryAddress.latitude,
+              initialLongitude: currentOrder.deliveryAddress.longitude,
+              initialZoom: 14,
               markers: {
-                Marker(
-                  markerId: const MarkerId('delivery'),
-                  position: LatLng(
-                    currentOrder.deliveryAddress.latitude,
-                    currentOrder.deliveryAddress.longitude,
-                  ),
-                  icon: BitmapDescriptor.defaultMarkerWithHue(
-                    BitmapDescriptor.hueGreen,
-                  ),
-                  infoWindow: const InfoWindow(title: 'Delivery Location'),
+                AppMapMarker(
+                  id: 'delivery',
+                  latitude: currentOrder.deliveryAddress.latitude,
+                  longitude: currentOrder.deliveryAddress.longitude,
+                  kind: AppMapMarkerKind.delivery,
+                  title: 'Delivery Location',
                 ),
                 if (isCourier && currentOrder.pickupAddress != null)
-                  Marker(
-                    markerId: const MarkerId('pickup'),
-                    position: LatLng(
-                      currentOrder.pickupAddress!.latitude,
-                      currentOrder.pickupAddress!.longitude,
-                    ),
-                    icon: BitmapDescriptor.defaultMarkerWithHue(
-                      BitmapDescriptor.hueViolet,
-                    ),
-                    infoWindow: const InfoWindow(title: 'Pickup Location'),
+                  AppMapMarker(
+                    id: 'pickup',
+                    latitude: currentOrder.pickupAddress!.latitude,
+                    longitude: currentOrder.pickupAddress!.longitude,
+                    kind: AppMapMarkerKind.pickup,
+                    title: 'Pickup Location',
                   ),
-                Marker(
-                  markerId: const MarkerId('driver'),
-                  position: LatLng(
-                    currentOrder.driverLatitude!,
-                    currentOrder.driverLongitude!,
-                  ),
-                  icon: BitmapDescriptor.defaultMarkerWithHue(
-                    BitmapDescriptor.hueOrange,
-                  ),
-                  infoWindow: InfoWindow(title: currentOrder.driverName),
+                AppMapMarker(
+                  id: 'driver',
+                  latitude: currentOrder.driverLatitude!,
+                  longitude: currentOrder.driverLongitude!,
+                  kind: AppMapMarkerKind.driver,
+                  title: currentOrder.driverName ?? 'Driver',
                 ),
-              },
-              onMapCreated: (controller) {
-                _mapController = controller;
               },
             )
           else

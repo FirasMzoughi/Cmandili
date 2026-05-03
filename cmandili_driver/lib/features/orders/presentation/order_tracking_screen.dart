@@ -1,12 +1,12 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/utils/currency_formatter.dart';
 import '../../../core/services/background_location_service.dart';
+import '../../../core/widgets/app_map.dart';
 import '../data/models/order.dart';
 import '../providers/order_provider.dart';
 import '../providers/driver_orders_provider.dart';
@@ -24,7 +24,7 @@ class OrderTrackingScreen extends ConsumerStatefulWidget {
 }
 
 class _OrderTrackingScreenState extends ConsumerState<OrderTrackingScreen> {
-  GoogleMapController? _mapController;
+  final AppMapController _mapController = AppMapController();
   StreamSubscription<Position>? _positionStream;
   StreamSubscription? _deliveryStream;
   double? _myLat;
@@ -59,9 +59,7 @@ class _OrderTrackingScreenState extends ConsumerState<OrderTrackingScreen> {
         _myLat = pos.latitude;
         _myLng = pos.longitude;
       });
-      _mapController?.animateCamera(
-        CameraUpdate.newLatLng(LatLng(pos.latitude, pos.longitude)),
-      );
+      _mapController.animateToPoint(pos.latitude, pos.longitude);
 
       // Update driver record
       try {
@@ -122,7 +120,7 @@ class _OrderTrackingScreenState extends ConsumerState<OrderTrackingScreen> {
   void dispose() {
     _positionStream?.cancel();
     _deliveryStream?.cancel();
-    _mapController?.dispose();
+    _mapController.dispose();
     super.dispose();
   }
 
@@ -227,33 +225,29 @@ class _OrderTrackingScreenState extends ConsumerState<OrderTrackingScreen> {
       body: Stack(
         children: [
           // Map showing driver position and delivery destination
-          GoogleMap(
-            initialCameraPosition: CameraPosition(
-              target: hasLocation
-                  ? LatLng(_myLat!, _myLng!)
-                  : LatLng(deliveryLat, deliveryLng),
-              zoom: 14,
-            ),
-            myLocationEnabled: true,
-            myLocationButtonEnabled: false,
+          AppMap(
+            controller: _mapController,
+            initialLatitude: hasLocation ? _myLat! : deliveryLat,
+            initialLongitude: hasLocation ? _myLng! : deliveryLng,
+            initialZoom: 14,
+            showUserLocationPuck: true,
             markers: {
-              Marker(
-                markerId: const MarkerId('delivery'),
-                position: LatLng(deliveryLat, deliveryLng),
-                icon: BitmapDescriptor.defaultMarkerWithHue(
-                    BitmapDescriptor.hueGreen),
-                infoWindow: const InfoWindow(title: 'Delivery Location'),
+              AppMapMarker(
+                id: 'delivery',
+                latitude: deliveryLat,
+                longitude: deliveryLng,
+                kind: AppMapMarkerKind.delivery,
+                title: 'Delivery Location',
               ),
               if (hasLocation)
-                Marker(
-                  markerId: const MarkerId('driver'),
-                  position: LatLng(_myLat!, _myLng!),
-                  icon: BitmapDescriptor.defaultMarkerWithHue(
-                      BitmapDescriptor.hueOrange),
-                  infoWindow: const InfoWindow(title: 'You'),
+                AppMapMarker(
+                  id: 'driver',
+                  latitude: _myLat!,
+                  longitude: _myLng!,
+                  kind: AppMapMarkerKind.driver,
+                  title: 'You',
                 ),
             },
-            onMapCreated: (controller) => _mapController = controller,
           ),
 
           // Top back button

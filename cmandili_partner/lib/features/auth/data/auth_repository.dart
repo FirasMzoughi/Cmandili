@@ -91,13 +91,13 @@ class AuthRepository {
           .single();
       final entityId = entityRow['id'] as String;
 
-      // 2. Insert into partners table with real entity_id
-      await _supabase.from('partners').insert({
+      // 2. Upsert into partners table with real entity_id (safe on retry)
+      await _supabase.from('partners').upsert({
         'user_id': user.id,
         'partner_type': partnerType,
         'business_name': name,
         'entity_id': entityId,
-      });
+      }, onConflict: 'user_id');
     } catch (e) {
       // Partners table insert failed — non-blocking, profile can be created later
       debugPrint('Warning: Could not insert into partners table: $e');
@@ -106,25 +106,45 @@ class AuthRepository {
     return User.fromSupabase(user);
   }
 
-  // Complete onboarding for Google Sign-in users
+  // Complete onboarding for Google Sign-in users.
+  // Idempotent: if the user already has a partners row (e.g. from a previous
+  // attempt that errored mid-way), update it instead of inserting a duplicate.
   Future<void> completeOnboarding(String name, String partnerType) async {
     final user = _supabase.auth.currentUser;
     if (user == null) throw 'Not logged in';
 
-    final tableName = partnerType == 'restaurant' ? 'restaurants' : 'supermarkets';
-    final entityRow = await _supabase
-        .from(tableName)
-        .insert({'name': name, 'is_open': true})
-        .select('id')
-        .single();
-    final entityId = entityRow['id'] as String;
+    final existing = await _supabase
+        .from('partners')
+        .select('entity_id, partner_type')
+        .eq('user_id', user.id)
+        .maybeSingle();
 
-    await _supabase.from('partners').insert({
+    final tableName = partnerType == 'restaurant' ? 'restaurants' : 'supermarkets';
+
+    String entityId;
+    if (existing != null && existing['entity_id'] != null && existing['partner_type'] == partnerType) {
+      // Reuse the entity already linked to this partner; just rename it.
+      entityId = existing['entity_id'] as String;
+      await _supabase
+          .from(tableName)
+          .update({'name': name})
+          .eq('id', entityId);
+    } else {
+      // Create a fresh restaurant/supermarket row.
+      final entityRow = await _supabase
+          .from(tableName)
+          .insert({'name': name, 'is_open': true})
+          .select('id')
+          .single();
+      entityId = entityRow['id'] as String;
+    }
+
+    await _supabase.from('partners').upsert({
       'user_id': user.id,
       'partner_type': partnerType,
       'business_name': name,
       'entity_id': entityId,
-    });
+    }, onConflict: 'user_id');
   }
 
   // Sign in with Google

@@ -4,7 +4,7 @@ import 'package:intl/intl.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../notifications/data/models/notification.dart';
 import '../../notifications/providers/notification_provider.dart';
-import 'package:cmandili_mobile/l10n/app_localizations.dart';
+import 'package:cmandili_driver/l10n/app_localizations.dart';
 
 class NotificationScreen extends ConsumerWidget {
   const NotificationScreen({super.key});

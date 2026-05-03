@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/theme/app_colors.dart';
 import '../providers/auth_provider.dart';
-import 'package:cmandili_mobile/l10n/app_localizations.dart';
+import 'package:cmandili_driver/l10n/app_localizations.dart';
 import '../../../core/providers/localization_provider.dart';
 
 class AuthScreen extends ConsumerStatefulWidget {

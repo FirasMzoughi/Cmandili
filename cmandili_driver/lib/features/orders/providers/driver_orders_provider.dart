@@ -6,15 +6,13 @@ import '../data/models/order.dart';
 final _supabase = Supabase.instance.client;
 
 // Provider that resolves the current driver's UUID from the drivers table.
-// Also sets is_online=true on creation/fetch, and registers an AppLifecycleListener
-// to set is_online=false when the app is paused or detached.
+// Online/offline state is now managed explicitly by the driver via
+// driverOnlineProvider — this resolver no longer flips is_online on its own,
+// so opening the app does not silently override the driver's chosen state.
 final currentDriverIdProvider = FutureProvider<String?>((ref) async {
   final userId = _supabase.auth.currentUser?.id;
   if (userId == null) return null;
   try {
-    String driverId;
-
-    // Try to find existing driver record
     final existing = await _supabase
         .from('drivers')
         .select('id')
@@ -22,69 +20,21 @@ final currentDriverIdProvider = FutureProvider<String?>((ref) async {
         .maybeSingle();
 
     if (existing != null) {
-      driverId = existing['id'] as String;
-      // Mark online
-      await _supabase
-          .from('drivers')
-          .update({'is_online': true})
-          .eq('id', driverId);
-    } else {
-      // Create driver record on first use
-      final created = await _supabase
-          .from('drivers')
-          .insert({'user_id': userId, 'is_online': true})
-          .select('id')
-          .single();
-      driverId = created['id'] as String;
+      return existing['id'] as String;
     }
 
-    // Register lifecycle listener to go offline when app is backgrounded/closed
-    final observer = _DriverLifecycleObserver(driverId: driverId);
-    WidgetsBinding.instance.addObserver(observer);
-    ref.onDispose(() {
-      WidgetsBinding.instance.removeObserver(observer);
-      // Best-effort offline on provider disposal
-      _supabase
-          .from('drivers')
-          .update({'is_online': false})
-          .eq('id', driverId)
-          .then((_) {})
-          .catchError((_) {});
-    });
-
-    return driverId;
+    // Create driver record on first use, default to offline.
+    final created = await _supabase
+        .from('drivers')
+        .insert({'user_id': userId, 'is_online': false})
+        .select('id')
+        .single();
+    return created['id'] as String;
   } catch (e) {
     debugPrint('Error getting/creating driver record: $e');
     return null;
   }
 });
-
-/// Marks the driver offline when the app goes to background or is closed.
-class _DriverLifecycleObserver extends WidgetsBindingObserver {
-  final String driverId;
-
-  _DriverLifecycleObserver({required this.driverId});
-
-  @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.paused ||
-        state == AppLifecycleState.detached) {
-      _supabase
-          .from('drivers')
-          .update({'is_online': false})
-          .eq('id', driverId)
-          .then((_) {})
-          .catchError((_) {});
-    } else if (state == AppLifecycleState.resumed) {
-      _supabase
-          .from('drivers')
-          .update({'is_online': true})
-          .eq('id', driverId)
-          .then((_) {})
-          .catchError((_) {});
-    }
-  }
-}
 
 // Stream of available orders (pending or ready, unassigned)
 final availableOrdersProvider = StreamProvider<List<Order>>((ref) {

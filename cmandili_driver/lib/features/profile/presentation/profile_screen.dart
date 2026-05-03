@@ -3,7 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../auth/presentation/auth_screen.dart';
 import '../../auth/providers/auth_provider.dart';
-import 'package:cmandili_mobile/l10n/app_localizations.dart';
+import 'package:cmandili_driver/l10n/app_localizations.dart';
 import '../../../core/providers/localization_provider.dart';
 import '../../../core/providers/theme_provider.dart';
 import 'edit_profile_screen.dart';

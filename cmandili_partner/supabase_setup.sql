@@ -397,7 +397,7 @@ CREATE TABLE IF NOT EXISTS public.payments (
   order_id        UUID NOT NULL REFERENCES public.orders(id) ON DELETE CASCADE,
   user_id         UUID NOT NULL REFERENCES auth.users(id),
   amount          DOUBLE PRECISION NOT NULL,
-  method          TEXT NOT NULL,        -- 'cash', 'konnect', 'flouci', 'd17'
+  method          TEXT NOT NULL,        -- 'cash'
   status          TEXT DEFAULT 'pending', -- pending, paid, failed, refunded
   gateway_ref     TEXT,                 -- payment gateway transaction ID
   gateway_payload JSONB,                -- raw gateway response for audit
