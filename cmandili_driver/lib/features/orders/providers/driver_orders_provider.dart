@@ -36,20 +36,50 @@ final currentDriverIdProvider = FutureProvider<String?>((ref) async {
   }
 });
 
-// Stream of available orders (pending or ready, unassigned)
-final availableOrdersProvider = StreamProvider<List<Order>>((ref) {
-  return _supabase
+// Stream of available orders (pending or ready, unassigned).
+//
+// Uses the realtime stream on `orders` (the view can't be subscribed to via
+// realtime), then enriches with customer info from a one-shot read of
+// orders_with_customer keyed by id. Cheaper than joining profiles in Dart on
+// every event.
+final availableOrdersProvider = StreamProvider<List<Order>>((ref) async* {
+  await for (final rows in _supabase
       .from('orders')
       .stream(primaryKey: ['id'])
-      .order('created_at', ascending: false)
-      .map((rows) {
-        return rows
-            .where((row) =>
-                (row['status'] == 'pending' || row['status'] == 'ready') &&
-                row['driver_id'] == null)
-            .map((row) => Order.fromJson(_mapOrderRow(row)))
-            .toList();
-      });
+      .order('created_at', ascending: false)) {
+    // Only offer orders the restaurant has marked 'ready' (food cooked) and
+    // that no driver has claimed yet. 'pending' was previously included, which
+    // let a driver grab an order before the restaurant even accepted it.
+    final available = rows
+        .where((row) =>
+            row['status'] == 'ready' && row['driver_id'] == null)
+        .toList();
+    if (available.isEmpty) {
+      yield <Order>[];
+      continue;
+    }
+    final ids = available.map((r) => r['id'] as String).toList();
+    Map<String, Map<String, dynamic>> byId = {};
+    try {
+      final enriched = await _supabase
+          .from('orders_with_customer')
+          .select('id, customer_name, customer_phone')
+          .inFilter('id', ids);
+      byId = {
+        for (final row in (enriched as List).cast<Map<String, dynamic>>())
+          row['id'] as String: row,
+      };
+    } catch (_) {
+      // RLS or migration not yet applied — fall through with empty map.
+    }
+    yield available.map((row) {
+      final extra = byId[row['id']];
+      final mapped = _mapOrderRow(row);
+      mapped['customerName'] = extra?['customer_name'];
+      mapped['customerPhone'] = extra?['customer_phone'];
+      return Order.fromJson(mapped);
+    }).toList();
+  }
 });
 
 // Stream of the driver's currently active delivery
@@ -131,5 +161,7 @@ Map<String, dynamic> _mapOrderRow(Map<String, dynamic> row) {
     'recipientPhone': row['recipient_phone'],
     'packageDescription': row['package_description'],
     'isRecipientAccepted': false,
+    'customerName': row['customer_name'],
+    'customerPhone': row['customer_phone'],
   };
 }

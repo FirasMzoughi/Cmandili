@@ -9,15 +9,21 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
     <!-- Android 13+ requires runtime permission for foreground-service notifications -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
-    <!-- Keeps CPU awake during location updates -->
+    <!-- Keeps CPU awake during location updates and incoming-order alarms -->
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <!-- Allows the service to restart after being killed -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.VIBRATE" />
+    <!-- Required for fullScreenIntent — shows the order offer on the lock screen
+         like an incoming call, waking the device screen immediately. -->
+    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
+    <uses-permission android:name="android.permission.TURN_SCREEN_ON" />
+    <uses-permission android:name="android.permission.DISABLE_KEYGUARD" />
 
     <application
         android:label="Cmandili Driver"
-        android:name="${applicationName}"
+        android:name=".Application"
         android:icon="@mipmap/launcher_icon">
         <activity
             android:name=".MainActivity"
@@ -40,13 +46,46 @@
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
+            <!-- Tapping an FCM notification opens the app via this filter. -->
+            <intent-filter>
+                <action android:name="FLUTTER_NOTIFICATION_CLICK"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+            </intent-filter>
         </activity>
+        <!-- Default channel id for FCM `notification` payloads. -->
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_channel_id"
+            android:value="cmandili_orders" />
+        <!-- Default icon used when the OS renders an FCM notification while the
+             app is killed. Without this, Android silently drops the notification. -->
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_icon"
+            android:resource="@mipmap/launcher_icon" />
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_color"
+            android:resource="@color/notification_color" />
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />
-        
+
+        <!-- Remove the Flutter plugin's default FCM service. -->
+        <service
+            android:name="io.flutter.plugins.firebase.messaging.FlutterFirebaseMessagingService"
+            tools:node="remove" />
+
+        <!-- CmandiliMessagingService: native Kotlin alarm for delivery offers.
+             Works on terminated OEM Android. super.onMessageReceived() still
+             triggers the Dart offerStream for accept/reject modal on stock Android. -->
+        <service
+            android:name=".CmandiliMessagingService"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.google.firebase.MESSAGING_EVENT" />
+            </intent-filter>
+        </service>
+
         <!-- flutter_background_service foreground service -->
         <service
             android:name="id.flutter.flutter_background_service.BackgroundService"

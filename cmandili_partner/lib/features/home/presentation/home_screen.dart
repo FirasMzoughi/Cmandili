@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:cached_network_image/cached_network_image.dart';
+import 'package:cmandili_partner/l10n/app_localizations.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../profile/presentation/profile_screen.dart';
 import '../../orders/presentation/partner_orders_screen.dart';
@@ -9,6 +11,9 @@ import '../../reports/presentation/reports_screen.dart';
 import '../../orders/providers/partner_orders_provider.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../../auth/presentation/partner_onboarding_screen.dart';
+import '../../orders/providers/audio_alert_provider.dart';
+import '../../orders/data/models/order.dart';
+import '../../orders/presentation/incoming_order_dialog.dart';
 
 // Tracks shop open/closed state, synced to restaurants/supermarkets table.
 final _shopOpenProvider = StateNotifierProvider<_ShopOpenNotifier, bool?>((ref) {
@@ -49,6 +54,11 @@ class HomeScreen extends ConsumerStatefulWidget {
 class _HomeScreenState extends ConsumerState<HomeScreen> {
   int _selectedIndex = 0;
 
+  /// IDs of pending orders for which a dialog has already been shown this
+  /// session. Prevents the same order from triggering multiple dialogs if
+  /// the stream emits it again (e.g. on reconnect).
+  final Set<String> _shownPendingIds = {};
+
   final List<Widget> _tabs = const [
     _DashboardTab(),
     PartnerOrdersScreen(),
@@ -57,10 +67,43 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     ProfileScreen(),
   ];
 
+  /// Shows the incoming-order dialog for [order] after the current frame so
+  /// it never interrupts an ongoing build pass.
+  void _showIncomingOrderDialog(Order order) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      showDialog(
+        context: context,
+        barrierDismissible: false, // partner must explicitly accept or reject
+        builder: (_) => IncomingOrderDialog(order: order),
+      );
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final profileAsync = ref.watch(partnerProfileProvider);
-    
+    final l = AppLocalizations.of(context)!;
+
+    // Démarre l'écoute globale pour les alertes sonores de nouvelles commandes
+    ref.listen(orderAlertProvider, (_, __) {});
+
+    // Detect new pending orders and show the incoming-order dialog once per
+    // order ID. addPostFrameCallback ensures the dialog is shown safely after
+    // the current build completes, even if the stream emits during a rebuild.
+    ref.listen<AsyncValue<List<Order>>>(partnerOrdersStreamProvider,
+        (_, next) {
+      next.whenData((orders) {
+        for (final order in orders) {
+          if (order.status == OrderStatus.pending &&
+              !_shownPendingIds.contains(order.id)) {
+            _shownPendingIds.add(order.id);
+            _showIncomingOrderDialog(order);
+          }
+        }
+      });
+    });
+
     return profileAsync.when(
       loading: () => const Scaffold(body: Center(child: CircularProgressIndicator())),
       error: (err, stack) => Scaffold(body: Center(child: Text('Error loading profile: $err'))),
@@ -92,11 +135,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceAround,
                 children: [
-                  _buildNavItem(0, Icons.dashboard_rounded, 'Dashboard'),
-                  _buildNavItem(1, Icons.receipt_long_rounded, 'Orders'),
-                  _buildNavItem(2, Icons.restaurant_menu_rounded, 'Menu'),
-                  _buildNavItem(3, Icons.insights_rounded, 'Reports'),
-                  _buildNavItem(4, Icons.person_rounded, 'Profile'),
+                  _buildNavItem(0, Icons.dashboard_rounded, l.dashboard),
+                  _buildNavItem(1, Icons.receipt_long_rounded, l.orders),
+                  _buildNavItem(2, Icons.restaurant_menu_rounded, l.menu),
+                  _buildNavItem(3, Icons.insights_rounded, l.reports),
+                  _buildNavItem(4, Icons.person_rounded, l.profile),
                 ],
               ),
             ),
@@ -151,6 +194,7 @@ class _DashboardTab extends ConsumerWidget {
     final statsAsync = ref.watch(dashboardStatsProvider);
     final ordersAsync = ref.watch(partnerOrdersStreamProvider);
     final profileAsync = ref.watch(partnerProfileProvider);
+    final l = AppLocalizations.of(context)!;
 
     return CustomScrollView(
       slivers: [
@@ -181,7 +225,7 @@ class _DashboardTab extends ConsumerWidget {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(
-                                'Partner Dashboard',
+                                l.partnerDashboard,
                                 style: Theme.of(context).textTheme.titleLarge?.copyWith(
                                       color: Colors.white,
                                       fontWeight: FontWeight.w700,
@@ -238,7 +282,7 @@ class _DashboardTab extends ConsumerWidget {
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
                                     Text(
-                                      'Revenue Today',
+                                      l.revenueToday,
                                       style: Theme.of(context).textTheme.bodySmall?.copyWith(
                                             color: Colors.white70,
                                           ),
@@ -264,7 +308,7 @@ class _DashboardTab extends ConsumerWidget {
                                   crossAxisAlignment: CrossAxisAlignment.end,
                                   children: [
                                     Text(
-                                      'Orders',
+                                      l.orders,
                                       style: Theme.of(context).textTheme.bodySmall?.copyWith(
                                             color: Colors.white70,
                                           ),
@@ -303,8 +347,8 @@ class _DashboardTab extends ConsumerWidget {
                             color: Colors.white.withOpacity(0.2),
                             borderRadius: BorderRadius.circular(16),
                           ),
-                          child: const Center(
-                            child: Text('Could not load stats', style: TextStyle(color: Colors.white70)),
+                          child: Center(
+                            child: Text(l.couldNotLoadStats, style: const TextStyle(color: Colors.white70)),
                           ),
                         ),
                       ),
@@ -324,7 +368,7 @@ class _DashboardTab extends ConsumerWidget {
                   children: [
                     Expanded(child: _buildQuickStatCard(
                       icon: Icons.timer_rounded,
-                      label: 'Avg Prep',
+                      label: l.avgPrep,
                       value: statsAsync.when(
                         data: (s) => '${s['avgPrepTime'] ?? '--'} min',
                         loading: () => '-- min',
@@ -335,7 +379,7 @@ class _DashboardTab extends ConsumerWidget {
                     const SizedBox(width: 14),
                     Expanded(child: _buildQuickStatCard(
                       icon: Icons.star_rounded,
-                      label: 'Rating',
+                      label: l.rating,
                       value: statsAsync.when(
                         data: (s) => '${s['rating'] ?? '--'}',
                         loading: () => '--',
@@ -378,7 +422,7 @@ class _DashboardTab extends ConsumerWidget {
                       const SizedBox(width: 10),
                       Expanded(
                         child: Text(
-                          (isOpen ?? true) ? 'Shop is Open — accepting orders' : 'Shop is Closed — not accepting orders',
+                          (isOpen ?? true) ? l.shopOpen : l.shopClosed,
                           style: TextStyle(
                             fontWeight: FontWeight.w600,
                             fontSize: 13,
@@ -408,12 +452,12 @@ class _DashboardTab extends ConsumerWidget {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Text(
-                  'Active Orders',
+                  l.activeOrders,
                   style: Theme.of(context).textTheme.titleLarge,
                 ),
                 TextButton(
                   onPressed: () => (context.findAncestorStateOfType<_HomeScreenState>()?._selectedIndex = 1),
-                  child: const Text('See all'),
+                  child: Text(l.seeAll),
                 ),
               ],
             ),
@@ -433,7 +477,7 @@ class _DashboardTab extends ConsumerWidget {
                         Icon(Icons.receipt_long_rounded, size: 48, color: AppColors.textLight),
                         const SizedBox(height: 8),
                         Text(
-                          'No active orders',
+                          l.noActiveOrders,
                           style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                                 color: AppColors.textSecondary,
                               ),
@@ -450,7 +494,7 @@ class _DashboardTab extends ConsumerWidget {
                   final order = active[index];
                   return Padding(
                     padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
-                    child: _buildOrderCard(context, order),
+                    child: _buildOrderCard(context, ref, order),
                   );
                 },
                 childCount: active.length > 3 ? 3 : active.length,
@@ -476,22 +520,22 @@ class _DashboardTab extends ConsumerWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Quick Actions',
+                  l.quickActions,
                   style: Theme.of(context).textTheme.titleLarge,
                 ),
                 const SizedBox(height: 12),
                 SizedBox(
-                  height: 96,
+                  height: 108,
                   child: ListView.separated(
                     scrollDirection: Axis.horizontal,
                     itemCount: 4,
                     separatorBuilder: (_, __) => const SizedBox(width: 12),
                     itemBuilder: (context, index) {
                       final actions = [
-                        {'label': 'New Menu', 'icon': Icons.restaurant_menu_rounded, 'color': AppColors.primary, 'tab': 2},
-                        {'label': 'Promos', 'icon': Icons.local_offer_rounded, 'color': AppColors.secondary, 'tab': 2},
-                        {'label': 'Reports', 'icon': Icons.insights_rounded, 'color': AppColors.info, 'tab': 3},
-                        {'label': 'Orders', 'icon': Icons.receipt_long_rounded, 'color': AppColors.accent, 'tab': 1},
+                        {'label': l.newMenu, 'icon': Icons.restaurant_menu_rounded, 'color': AppColors.primary, 'tab': 2},
+                        {'label': l.promos, 'icon': Icons.local_offer_rounded, 'color': AppColors.secondary, 'tab': 2},
+                        {'label': l.reports, 'icon': Icons.insights_rounded, 'color': AppColors.info, 'tab': 3},
+                        {'label': l.orders, 'icon': Icons.receipt_long_rounded, 'color': AppColors.accent, 'tab': 1},
                       ];
                       final action = actions[index];
                       return GestureDetector(
@@ -536,6 +580,8 @@ class _DashboardTab extends ConsumerWidget {
                                 style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                                       fontWeight: FontWeight.w600,
                                     ),
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
                               ),
                             ],
                           ),
@@ -602,8 +648,26 @@ class _DashboardTab extends ConsumerWidget {
     );
   }
 
-  Widget _buildOrderCard(BuildContext context, dynamic order) {
+  Widget _buildOrderCard(BuildContext context, WidgetRef ref, dynamic order) {
+    final typedOrder = order as Order;
     final statusColor = _statusColor(order.status);
+    final isPending = order.status == OrderStatus.pending;
+
+    // ── First-item thumbnail ──────────────────────────────────────────────
+    final firstItem = typedOrder.items.isNotEmpty ? typedOrder.items.first : null;
+    final imageUrl = firstItem?.imageUrl ?? '';
+
+    // ── Order title: first item name + overflow count ─────────────────────
+    final String orderTitle;
+    if (firstItem == null) {
+      orderTitle = '#${order.id.substring(0, 8).toUpperCase()}';
+    } else {
+      final extra = typedOrder.items.length - 1;
+      orderTitle = extra > 0
+          ? '${firstItem.displayName} + $extra item(s)'
+          : firstItem.displayName;
+    }
+
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -617,18 +681,37 @@ class _DashboardTab extends ConsumerWidget {
           ),
         ],
       ),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Container(
-            width: 44,
-            height: 44,
-            decoration: BoxDecoration(
-              color: statusColor.withOpacity(0.12),
+          Row(
+            children: [
+          // ── Item thumbnail (52×52) with shopping-bag fallback ──────────
+          SizedBox(
+            width: 52,
+            height: 52,
+            child: ClipRRect(
               borderRadius: BorderRadius.circular(14),
-            ),
-            child: Icon(
-              Icons.shopping_bag_rounded,
-              color: statusColor,
+              child: imageUrl.isNotEmpty
+                  ? CachedNetworkImage(
+                      imageUrl: imageUrl,
+                      fit: BoxFit.cover,
+                      placeholder: (_, __) => Container(
+                        color: statusColor.withOpacity(0.08),
+                        child: Center(
+                          child: SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: statusColor,
+                            ),
+                          ),
+                        ),
+                      ),
+                      errorWidget: (_, __, ___) => _itemFallback(statusColor),
+                    )
+                  : _itemFallback(statusColor),
             ),
           ),
           const SizedBox(width: 14),
@@ -637,12 +720,14 @@ class _DashboardTab extends ConsumerWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  '#${order.id.substring(0, 8).toUpperCase()}',
+                  orderTitle,
                   style: Theme.of(context).textTheme.titleMedium,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  '${order.items.length} item(s)',
+                  '${typedOrder.items.length} item(s)',
                   style: Theme.of(context).textTheme.bodySmall,
                 ),
                 const SizedBox(height: 6),
@@ -678,6 +763,86 @@ class _DashboardTab extends ConsumerWidget {
                 ),
               ),
             ],
+          ),
+        ],
+      ),
+      if (isPending) ...[
+        const SizedBox(height: 16),
+        const Divider(height: 1),
+        const SizedBox(height: 12),
+        Row(
+          children: [
+            Expanded(
+              child: OutlinedButton(
+                onPressed: () => _showRejectDialog(context, ref, order),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: AppColors.error,
+                  side: const BorderSide(color: AppColors.error),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                ),
+                child: const Text('Refuser'),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: ElevatedButton(
+                onPressed: () async {
+                  await ref.read(audioAlertServiceProvider).stopAlert();
+                  ref.read(partnerOrderRepositoryProvider).updateOrderStatus(order.id, OrderStatus.confirmed);
+                },
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.success,
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  elevation: 0,
+                ),
+                child: const Text('Accepter'),
+              ),
+            ),
+          ],
+        ),
+      ],
+    ],
+  ),
+);
+  }
+
+  /// Fallback widget shown when an item has no image or the URL fails to load.
+  Widget _itemFallback(Color statusColor) {
+    return Container(
+      color: statusColor.withOpacity(0.12),
+      child: Icon(Icons.shopping_bag_rounded, color: statusColor),
+    );
+  }
+
+  void _showRejectDialog(BuildContext context, WidgetRef ref, dynamic order) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Refuser la commande'),
+        content: const Text('Êtes-vous sûr de vouloir refuser cette commande ? Cette action est irréversible.'),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Annuler'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              ref.read(partnerOrderRepositoryProvider).updateOrderStatus(order.id, OrderStatus.cancelled);
+              Navigator.pop(ctx);
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.error,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('Sûr de refuser'),
           ),
         ],
       ),

@@ -48,6 +48,12 @@ class Order {
   final String? packageDescription;
   final bool isRecipientAccepted;
 
+  // Resolved customer display name + phone, sourced from the
+  // orders_with_customer view (delivery_address.recipientName/phone first,
+  // then profiles.full_name/phone). Empty string when unknown.
+  final String? customerName;
+  final String? customerPhone;
+
   Order({
     required this.id,
     required this.userId,
@@ -74,6 +80,8 @@ class Order {
     this.recipientPhone,
     this.packageDescription,
     this.isRecipientAccepted = false,
+    this.customerName,
+    this.customerPhone,
   });
 
   factory Order.fromJson(Map<String, dynamic> json) {
@@ -116,6 +124,8 @@ class Order {
       recipientPhone: json['recipientPhone'],
       packageDescription: json['packageDescription'],
       isRecipientAccepted: json['isRecipientAccepted'] ?? false,
+      customerName: json['customerName'] as String?,
+      customerPhone: json['customerPhone'] as String?,
     );
   }
 

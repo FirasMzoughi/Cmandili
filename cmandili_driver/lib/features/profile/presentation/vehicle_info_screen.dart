@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/theme/app_colors.dart';
+import 'package:cmandili_driver/l10n/app_localizations.dart';
 
 class VehicleInfoScreen extends StatefulWidget {
   const VehicleInfoScreen({super.key, this.onSaved});
@@ -82,7 +83,7 @@ class _VehicleInfoScreenState extends State<VehicleInfoScreen> {
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Vehicle info saved'), backgroundColor: Colors.green),
+          SnackBar(content: Text(AppLocalizations.of(context)!.vehicleInfoSaved), backgroundColor: Colors.green),
         );
         if (widget.onSaved != null) {
           widget.onSaved!();
@@ -101,9 +102,10 @@ class _VehicleInfoScreenState extends State<VehicleInfoScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final l = AppLocalizations.of(context)!;
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Vehicle Info', style: TextStyle(fontWeight: FontWeight.bold)),
+        title: Text(l.vehicleInfo, style: const TextStyle(fontWeight: FontWeight.bold)),
         centerTitle: true,
         backgroundColor: AppColors.background,
         elevation: 0,
@@ -119,7 +121,7 @@ class _VehicleInfoScreenState extends State<VehicleInfoScreen> {
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     // Vehicle type selector
-                    const Text('Vehicle Type', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14, color: AppColors.textSecondary)),
+                    Text(l.vehicleType, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14, color: AppColors.textSecondary)),
                     const SizedBox(height: 10),
                     Wrap(
                       spacing: 10,
@@ -138,15 +140,15 @@ class _VehicleInfoScreenState extends State<VehicleInfoScreen> {
                       }).toList(),
                     ),
                     const SizedBox(height: 20),
-                    _field(controller: _makeCtrl, label: 'Make (e.g. Yamaha)', icon: Icons.directions_car_outlined,
-                        validator: (v) => v!.isEmpty ? 'Required' : null),
+                    _field(controller: _makeCtrl, label: l.vehicleMakeHint, icon: Icons.directions_car_outlined,
+                        validator: (v) => v!.isEmpty ? l.required : null),
                     const SizedBox(height: 16),
-                    _field(controller: _modelCtrl, label: 'Model (e.g. NMAX)', icon: Icons.two_wheeler_rounded),
+                    _field(controller: _modelCtrl, label: l.vehicleModelHint, icon: Icons.two_wheeler_rounded),
                     const SizedBox(height: 16),
-                    _field(controller: _plateCtrl, label: 'License Plate', icon: Icons.credit_card_outlined,
-                        validator: (v) => v!.isEmpty ? 'Required' : null),
+                    _field(controller: _plateCtrl, label: l.licensePlate, icon: Icons.credit_card_outlined,
+                        validator: (v) => v!.isEmpty ? l.required : null),
                     const SizedBox(height: 16),
-                    _field(controller: _colorCtrl, label: 'Color', icon: Icons.palette_outlined),
+                    _field(controller: _colorCtrl, label: l.color, icon: Icons.palette_outlined),
                     const SizedBox(height: 32),
                     SizedBox(
                       height: 52,
@@ -159,7 +161,7 @@ class _VehicleInfoScreenState extends State<VehicleInfoScreen> {
                         ),
                         child: _saving
                             ? const SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                            : const Text('Save Vehicle Info', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                            : Text(l.saveVehicleInfo, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
                       ),
                     ),
                   ],

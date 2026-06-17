@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/utils/currency_formatter.dart';
 import '../providers/driver_orders_provider.dart';
+import 'package:cmandili_driver/l10n/app_localizations.dart';
 
 class DriverOrderHistoryScreen extends ConsumerWidget {
   const DriverOrderHistoryScreen({super.key});
@@ -10,10 +11,11 @@ class DriverOrderHistoryScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final historyAsync = ref.watch(driverDeliveryHistoryProvider);
+    final l = AppLocalizations.of(context)!;
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Delivery History', style: TextStyle(fontWeight: FontWeight.bold)),
+        title: Text(l.deliveryHistory, style: const TextStyle(fontWeight: FontWeight.bold)),
         centerTitle: true,
         backgroundColor: AppColors.background,
         elevation: 0,
@@ -24,15 +26,15 @@ class DriverOrderHistoryScreen extends ConsumerWidget {
         error: (e, _) => Center(child: Text('Error: $e')),
         data: (orders) {
           if (orders.isEmpty) {
-            return const Center(
+            return Center(
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Icon(Icons.history, size: 80, color: AppColors.textLight),
-                  SizedBox(height: 16),
-                  Text('No deliveries yet', style: TextStyle(fontSize: 18, color: AppColors.textSecondary)),
-                  SizedBox(height: 8),
-                  Text('Completed deliveries will appear here', style: TextStyle(color: AppColors.textLight)),
+                  const Icon(Icons.history, size: 80, color: AppColors.textLight),
+                  const SizedBox(height: 16),
+                  Text(l.noDeliveriesYet, style: const TextStyle(fontSize: 18, color: AppColors.textSecondary)),
+                  const SizedBox(height: 8),
+                  Text(l.completedDeliveriesAppearHere, style: const TextStyle(color: AppColors.textLight)),
                 ],
               ),
             );
@@ -106,7 +108,7 @@ class DriverOrderHistoryScreen extends ConsumerWidget {
                             color: AppColors.success.withValues(alpha: 0.1),
                             borderRadius: BorderRadius.circular(6),
                           ),
-                          child: const Text('Delivered', style: TextStyle(color: AppColors.success, fontSize: 11, fontWeight: FontWeight.w600)),
+                          child: Text(l.delivered, style: const TextStyle(color: AppColors.success, fontSize: 11, fontWeight: FontWeight.w600)),
                         ),
                       ],
                     ),

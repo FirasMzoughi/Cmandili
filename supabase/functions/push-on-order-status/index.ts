@@ -203,7 +203,48 @@ serve(async (req: Request) => {
 
   const data = { order_id, status, event: event ?? 'status' };
 
-  // ── Mode B: fan out to nearby online drivers ───────────────────────────────
+  // ── Mode C: offer an order to a single driver (10s window) ─────────────────
+  // Triggered by the offer_order_to_driver RPC. The order's
+  // assigned_driver_id has already been updated; we just need to push.
+  if (event === 'offer_to_driver') {
+    const { driver_id } = await (async () => {
+      // The body was already parsed at the top of serve(); re-read driver_id
+      // from there. We can't reuse the destructured `event/order_id/status`
+      // bag because driver_id wasn't pulled out — so look it up via DB.
+      const { data: row } = await supabase
+        .from('orders')
+        .select('assigned_driver_id')
+        .eq('id', order_id)
+        .maybeSingle();
+      return { driver_id: row?.assigned_driver_id as string | null };
+    })();
+
+    if (!driver_id) {
+      return new Response('No assigned driver', { status: 200 });
+    }
+
+    const { data: drow } = await supabase
+      .from('drivers')
+      .select('user_id')
+      .eq('id', driver_id)
+      .maybeSingle();
+    const driverUserId = drow?.user_id as string | undefined;
+    if (!driverUserId) {
+      return new Response('Driver has no auth user', { status: 200 });
+    }
+
+    const sent = await pushToUsers(
+      supabase, accessToken, projectId, [driverUserId],
+      '🔔 New delivery — 10s to accept',
+      'Tap to view the order. Auto-passes if you don\'t answer.',
+      { ...data, urgent: '1' },
+    );
+    return new Response(JSON.stringify({ mode: 'offer', sent }), {
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+
+  // ── Mode B: fan out to nearby online drivers (legacy / fallback) ───────────
   if (event === 'driver_fanout') {
     // Look up the order to get pickup coords via its restaurant/supermarket.
     const { data: order } = await supabase

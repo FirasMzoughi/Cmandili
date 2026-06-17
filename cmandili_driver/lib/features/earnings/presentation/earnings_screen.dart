@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../orders/providers/driver_orders_provider.dart';
+import 'package:cmandili_driver/l10n/app_localizations.dart';
 
 final _earningsProvider = FutureProvider.family<Map<String, dynamic>, String>((ref, period) async {
   final supabase = Supabase.instance.client;
@@ -48,10 +49,11 @@ class _EarningsScreenState extends ConsumerState<EarningsScreen> {
   Widget build(BuildContext context) {
     final earningsAsync = ref.watch(_earningsProvider(_period));
     final historyAsync = ref.watch(driverDeliveryHistoryProvider);
+    final l = AppLocalizations.of(context)!;
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Earnings', style: TextStyle(fontWeight: FontWeight.bold)),
+        title: Text(l.earnings, style: const TextStyle(fontWeight: FontWeight.bold)),
         centerTitle: true,
         backgroundColor: AppColors.background,
         elevation: 0,
@@ -69,9 +71,9 @@ class _EarningsScreenState extends ConsumerState<EarningsScreen> {
             ),
             child: Row(
               children: [
-                _PeriodTab(label: 'Today', value: 'today', selected: _period, onTap: (v) => setState(() => _period = v)),
-                _PeriodTab(label: 'This Week', value: 'week', selected: _period, onTap: (v) => setState(() => _period = v)),
-                _PeriodTab(label: 'This Month', value: 'month', selected: _period, onTap: (v) => setState(() => _period = v)),
+                _PeriodTab(label: l.today, value: 'today', selected: _period, onTap: (v) => setState(() => _period = v)),
+                _PeriodTab(label: l.thisWeek, value: 'week', selected: _period, onTap: (v) => setState(() => _period = v)),
+                _PeriodTab(label: l.thisMonth, value: 'month', selected: _period, onTap: (v) => setState(() => _period = v)),
               ],
             ),
           ),
@@ -86,12 +88,12 @@ class _EarningsScreenState extends ConsumerState<EarningsScreen> {
                 children: [
                   const Icon(Icons.error_outline, color: AppColors.error, size: 36),
                   const SizedBox(height: 8),
-                  const Text('Could not load earnings'),
+                  Text(l.couldNotLoadEarnings),
                   const SizedBox(height: 8),
                   ElevatedButton.icon(
                     onPressed: () => ref.invalidate(_earningsProvider(_period)),
                     icon: const Icon(Icons.refresh),
-                    label: const Text('Retry'),
+                    label: Text(l.retry),
                   ),
                 ],
               ),
@@ -105,7 +107,7 @@ class _EarningsScreenState extends ConsumerState<EarningsScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text('Total Earnings', style: TextStyle(color: Colors.white70, fontSize: 14)),
+                  Text(l.totalEarnings, style: const TextStyle(color: Colors.white70, fontSize: 14)),
                   const SizedBox(height: 8),
                   Text(
                     '${(data['total'] as double).toStringAsFixed(2)} DT',
@@ -122,7 +124,7 @@ class _EarningsScreenState extends ConsumerState<EarningsScreen> {
                       const Icon(Icons.delivery_dining, color: Colors.white70, size: 20),
                       const SizedBox(width: 8),
                       Text(
-                        '${data['count']} deliveries completed',
+                        '${data['count']} ${l.deliveriesCompleted}',
                         style: const TextStyle(color: Colors.white70, fontSize: 14),
                       ),
                     ],
@@ -135,7 +137,7 @@ class _EarningsScreenState extends ConsumerState<EarningsScreen> {
           const SizedBox(height: 24),
 
           // Recent deliveries
-          const Text('Recent Deliveries', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+          Text(l.recentDeliveries, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
           const SizedBox(height: 12),
 
           historyAsync.when(
@@ -145,12 +147,12 @@ class _EarningsScreenState extends ConsumerState<EarningsScreen> {
                 children: [
                   const Icon(Icons.error_outline, color: AppColors.error, size: 36),
                   const SizedBox(height: 8),
-                  const Text('Could not load history'),
+                  Text(l.couldNotLoadHistory),
                   const SizedBox(height: 8),
                   ElevatedButton.icon(
                     onPressed: () => ref.invalidate(driverDeliveryHistoryProvider),
                     icon: const Icon(Icons.refresh),
-                    label: const Text('Retry'),
+                    label: Text(l.retry),
                   ),
                 ],
               ),
@@ -159,12 +161,12 @@ class _EarningsScreenState extends ConsumerState<EarningsScreen> {
               if (orders.isEmpty) {
                 return Container(
                   padding: const EdgeInsets.all(32),
-                  child: const Center(
+                  child: Center(
                     child: Column(
                       children: [
-                        Icon(Icons.receipt_long, size: 48, color: AppColors.textLight),
-                        SizedBox(height: 12),
-                        Text('No deliveries yet', style: TextStyle(color: AppColors.textSecondary)),
+                        const Icon(Icons.receipt_long, size: 48, color: AppColors.textLight),
+                        const SizedBox(height: 12),
+                        Text(l.noDeliveriesYet, style: const TextStyle(color: AppColors.textSecondary)),
                       ],
                     ),
                   ),

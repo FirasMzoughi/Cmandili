@@ -5,6 +5,7 @@ import 'package:image_picker/image_picker.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../data/profile_repository.dart';
+import 'package:cmandili_driver/l10n/app_localizations.dart';
 
 class EditProfileScreen extends ConsumerStatefulWidget {
   const EditProfileScreen({super.key});
@@ -71,9 +72,10 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
     );
     if (!mounted) return;
     setState(() => _isSaving = false);
+    final l = AppLocalizations.of(context)!;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text(success ? 'Profile updated successfully!' : 'Failed to update profile.'),
+        content: Text(success ? l.profileUpdated : l.failedToUpdateProfile),
         backgroundColor: success ? Colors.green : Colors.red,
       ),
     );
@@ -83,10 +85,11 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
   @override
   Widget build(BuildContext context) {
     final size = MediaQuery.of(context).size;
-    
+    final l = AppLocalizations.of(context)!;
+
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Edit Profile', style: TextStyle(fontWeight: FontWeight.bold)),
+        title: Text(l.editProfile, style: const TextStyle(fontWeight: FontWeight.bold)),
         centerTitle: true,
         elevation: 0,
         backgroundColor: Colors.transparent,
@@ -151,32 +154,32 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
               
               _buildTextField(
                 controller: _nameController,
-                label: 'Full Name',
+                label: l.fullName,
                 icon: Icons.person_outline,
-                validator: (value) => value!.isEmpty ? 'Please enter your name' : null,
+                validator: (value) => value!.isEmpty ? l.pleaseEnterName : null,
               ),
               SizedBox(height: size.height * 0.02),
-              
+
               _buildTextField(
                 controller: _emailController,
-                label: 'Email',
+                label: l.email,
                 icon: Icons.email_outlined,
                 keyboardType: TextInputType.emailAddress,
                 enabled: false, // Email usually not editable directly
               ),
               SizedBox(height: size.height * 0.02),
-              
+
               _buildTextField(
                 controller: _phoneController,
-                label: 'Phone Number',
+                label: l.phoneNumberLabel,
                 icon: Icons.phone_outlined,
                 keyboardType: TextInputType.phone,
               ),
               SizedBox(height: size.height * 0.02),
-              
+
               _buildTextField(
                 controller: _bioController,
-                label: 'Bio',
+                label: l.bio,
                 icon: Icons.info_outline,
                 maxLines: 3,
               ),

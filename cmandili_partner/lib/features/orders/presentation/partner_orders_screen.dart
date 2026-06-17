@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:cached_network_image/cached_network_image.dart';
+import 'package:cmandili_partner/l10n/app_localizations.dart';
 import '../../../core/theme/app_colors.dart';
 import '../data/models/order.dart';
 import '../providers/partner_orders_provider.dart';
@@ -18,6 +20,7 @@ class _PartnerOrdersScreenState extends ConsumerState<PartnerOrdersScreen> {
   @override
   Widget build(BuildContext context) {
     final ordersAsync = ref.watch(partnerOrdersStreamProvider);
+    final l = AppLocalizations.of(context)!;
 
     return Scaffold(
       body: CustomScrollView(
@@ -43,7 +46,7 @@ class _PartnerOrdersScreenState extends ConsumerState<PartnerOrdersScreen> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          'Orders',
+                          l.orders,
                           style: Theme.of(context).textTheme.headlineSmall?.copyWith(
                                 color: Colors.white,
                                 fontWeight: FontWeight.w700,
@@ -51,7 +54,7 @@ class _PartnerOrdersScreenState extends ConsumerState<PartnerOrdersScreen> {
                         ),
                         const SizedBox(height: 4),
                         Text(
-                          'Manage and update order status in real-time',
+                          l.manageOrdersRealtime,
                           style: Theme.of(context).textTheme.bodySmall?.copyWith(
                                 color: Colors.white70,
                               ),
@@ -72,17 +75,17 @@ class _PartnerOrdersScreenState extends ConsumerState<PartnerOrdersScreen> {
                 scrollDirection: Axis.horizontal,
                 child: Row(
                   children: [
-                    _buildFilterChip(null, 'All'),
+                    _buildFilterChip(null, l.all),
                     const SizedBox(width: 8),
-                    _buildFilterChip(OrderStatus.pending, 'New'),
+                    _buildFilterChip(OrderStatus.pending, l.filterNew),
                     const SizedBox(width: 8),
-                    _buildFilterChip(OrderStatus.confirmed, 'Confirmed'),
+                    _buildFilterChip(OrderStatus.confirmed, l.confirmedFilter),
                     const SizedBox(width: 8),
-                    _buildFilterChip(OrderStatus.preparing, 'Preparing'),
+                    _buildFilterChip(OrderStatus.preparing, l.preparingFilter),
                     const SizedBox(width: 8),
-                    _buildFilterChip(OrderStatus.ready, 'Ready'),
+                    _buildFilterChip(OrderStatus.ready, l.ready),
                     const SizedBox(width: 8),
-                    _buildFilterChip(OrderStatus.delivered, 'Delivered'),
+                    _buildFilterChip(OrderStatus.delivered, l.delivered),
                   ],
                 ),
               ),
@@ -109,14 +112,14 @@ class _PartnerOrdersScreenState extends ConsumerState<PartnerOrdersScreen> {
                         ),
                         const SizedBox(height: 16),
                         Text(
-                          'No orders yet',
+                          l.noOrdersYet,
                           style: Theme.of(context).textTheme.titleMedium?.copyWith(
                                 color: AppColors.textSecondary,
                               ),
                         ),
                         const SizedBox(height: 8),
                         Text(
-                          'New orders will appear here in real-time',
+                          l.newOrdersAppearHere,
                           style: Theme.of(context).textTheme.bodySmall?.copyWith(
                                 color: AppColors.textLight,
                               ),
@@ -146,7 +149,7 @@ class _PartnerOrdersScreenState extends ConsumerState<PartnerOrdersScreen> {
             error: (e, _) => SliverFillRemaining(
               child: Center(
                 child: Text(
-                  'Could not load orders.\nCheck your connection.',
+                  l.couldNotLoadOrders,
                   textAlign: TextAlign.center,
                   style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                         color: AppColors.textSecondary,
@@ -198,9 +201,28 @@ class _OrderCard extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final statusColor = _statusColor(order.status);
-    final customerName = order.deliveryAddress.label.isNotEmpty
-        ? order.deliveryAddress.label
-        : 'Customer';
+    // Resolved customer name from orders_with_customer view; fall back to the
+    // address label, then a generic placeholder.
+    final customerName = (order.customerName?.isNotEmpty ?? false)
+        ? order.customerName!
+        : (order.deliveryAddress.recipientName?.isNotEmpty ?? false)
+            ? order.deliveryAddress.recipientName!
+            : (order.deliveryAddress.label.isNotEmpty
+                ? order.deliveryAddress.label
+                : 'Customer');
+
+    // First item name + overflow count — mirrors the dashboard card logic.
+    final firstItem = order.items.isNotEmpty ? order.items.first : null;
+    final imageUrl = firstItem?.imageUrl ?? '';
+    final String orderTitle;
+    if (firstItem == null) {
+      orderTitle = '#${order.id.substring(0, 8).toUpperCase()}';
+    } else {
+      final extra = order.items.length - 1;
+      orderTitle = extra > 0
+          ? '${firstItem.displayName} + $extra item(s)'
+          : firstItem.displayName;
+    }
 
     return GestureDetector(
       onTap: () => Navigator.push(
@@ -225,14 +247,33 @@ class _OrderCard extends ConsumerWidget {
         children: [
           Row(
             children: [
-              Container(
-                width: 44,
-                height: 44,
-                decoration: BoxDecoration(
-                  color: statusColor.withOpacity(0.12),
+              // Item thumbnail with shopping-bag fallback — same as dashboard.
+              SizedBox(
+                width: 52,
+                height: 52,
+                child: ClipRRect(
                   borderRadius: BorderRadius.circular(14),
+                  child: imageUrl.isNotEmpty
+                      ? CachedNetworkImage(
+                          imageUrl: imageUrl,
+                          fit: BoxFit.cover,
+                          placeholder: (_, __) => Container(
+                            color: statusColor.withOpacity(0.08),
+                            child: Center(
+                              child: SizedBox(
+                                width: 18,
+                                height: 18,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: statusColor,
+                                ),
+                              ),
+                            ),
+                          ),
+                          errorWidget: (_, __, ___) => _itemFallback(statusColor),
+                        )
+                      : _itemFallback(statusColor),
                 ),
-                child: Icon(Icons.shopping_bag_rounded, color: statusColor),
               ),
               const SizedBox(width: 12),
               Expanded(
@@ -240,10 +281,12 @@ class _OrderCard extends ConsumerWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      '#${order.id.substring(0, 8).toUpperCase()}',
+                      orderTitle,
                       style: Theme.of(context).textTheme.titleMedium?.copyWith(
                             fontWeight: FontWeight.w700,
                           ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                     ),
                     const SizedBox(height: 2),
                     Text(
@@ -314,7 +357,7 @@ class _OrderCard extends ConsumerWidget {
                 TextButton.icon(
                   onPressed: () => _showStatusSheet(context, ref),
                   icon: const Icon(Icons.edit_rounded, size: 16),
-                  label: const Text('Update Status'),
+                  label: Text(AppLocalizations.of(context)!.updateStatus),
                   style: TextButton.styleFrom(
                     foregroundColor: AppColors.primary,
                     padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
@@ -329,6 +372,13 @@ class _OrderCard extends ConsumerWidget {
         ],
       ),
       ),
+    );
+  }
+
+  Widget _itemFallback(Color statusColor) {
+    return Container(
+      color: statusColor.withOpacity(0.12),
+      child: Icon(Icons.shopping_bag_rounded, color: statusColor),
     );
   }
 
@@ -357,7 +407,7 @@ class _OrderCard extends ConsumerWidget {
             ),
             const SizedBox(height: 16),
             Text(
-              'Update Order Status',
+              AppLocalizations.of(ctx)!.updateOrderStatus,
               style: Theme.of(ctx).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700),
             ),
             const SizedBox(height: 4),
@@ -370,9 +420,23 @@ class _OrderCard extends ConsumerWidget {
                   status: status,
                   onTap: () async {
                     Navigator.pop(ctx);
-                    await ref
-                        .read(partnerOrderRepositoryProvider)
-                        .updateOrderStatus(order.id, status);
+                    final messenger = ScaffoldMessenger.of(context);
+                    try {
+                      await ref
+                          .read(partnerOrderRepositoryProvider)
+                          .updateOrderStatus(order.id, status);
+                      messenger.showSnackBar(SnackBar(
+                        content: Text(
+                          'Order updated to ${status.toString().split('.').last}',
+                        ),
+                        backgroundColor: AppColors.success,
+                      ));
+                    } catch (e) {
+                      messenger.showSnackBar(SnackBar(
+                        content: Text('Failed to update order: $e'),
+                        backgroundColor: AppColors.error,
+                      ));
+                    }
                   },
                 )),
           ],
@@ -433,7 +497,7 @@ class _StatusOption extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final label = _label(status);
+    final label = _label(status, context);
     final color = _color(status);
     return ListTile(
       onTap: onTap,
@@ -451,15 +515,16 @@ class _StatusOption extends StatelessWidget {
     );
   }
 
-  String _label(OrderStatus s) {
+  String _label(OrderStatus s, BuildContext context) {
+    final l = AppLocalizations.of(context)!;
     switch (s) {
-      case OrderStatus.confirmed: return 'Confirm Order';
-      case OrderStatus.preparing: return 'Start Preparing';
-      case OrderStatus.ready: return 'Mark as Ready';
-      case OrderStatus.pickedUp: return 'Picked Up';
-      case OrderStatus.onTheWay: return 'Out for Delivery';
-      case OrderStatus.delivered: return 'Mark as Delivered';
-      case OrderStatus.cancelled: return 'Cancel Order';
+      case OrderStatus.confirmed: return l.confirmOrder;
+      case OrderStatus.preparing: return l.startPreparing;
+      case OrderStatus.ready: return l.markAsReady;
+      case OrderStatus.pickedUp: return l.pickedUp;
+      case OrderStatus.onTheWay: return l.outForDelivery;
+      case OrderStatus.delivered: return l.markAsDelivered;
+      case OrderStatus.cancelled: return l.cancelOrder;
       default: return s.toString().split('.').last;
     }
   }

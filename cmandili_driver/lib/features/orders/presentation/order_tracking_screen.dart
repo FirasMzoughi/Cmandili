@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:cmandili_driver/l10n/app_localizations.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/utils/currency_formatter.dart';
 import '../../../core/services/background_location_service.dart';
@@ -137,8 +138,8 @@ class _OrderTrackingScreenState extends ConsumerState<OrderTrackingScreen> {
 
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Order marked as picked up!'),
+        SnackBar(
+          content: Text(AppLocalizations.of(context)!.orderMarkedPickedUp),
           backgroundColor: Colors.orange,
         ),
       );
@@ -158,8 +159,8 @@ class _OrderTrackingScreenState extends ConsumerState<OrderTrackingScreen> {
 
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Delivery started!'),
+        SnackBar(
+          content: Text(AppLocalizations.of(context)!.deliveryStarted),
           backgroundColor: Colors.blue,
         ),
       );
@@ -191,8 +192,8 @@ class _OrderTrackingScreenState extends ConsumerState<OrderTrackingScreen> {
 
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Delivery confirmed!'),
+        SnackBar(
+          content: Text(AppLocalizations.of(context)!.deliveryConfirmed),
           backgroundColor: AppColors.success,
         ),
       );
@@ -209,7 +210,7 @@ class _OrderTrackingScreenState extends ConsumerState<OrderTrackingScreen> {
         body: Center(child: CircularProgressIndicator()),
       ),
       error: (e, _) => Scaffold(
-        appBar: AppBar(title: const Text('Delivery')),
+        appBar: AppBar(title: Text(AppLocalizations.of(context)!.delivery)),
         body: Center(child: Text('Error: $e')),
       ),
       data: (order) => _buildScreen(order),
@@ -217,6 +218,7 @@ class _OrderTrackingScreenState extends ConsumerState<OrderTrackingScreen> {
   }
 
   Widget _buildScreen(Order order) {
+    final l = AppLocalizations.of(context)!;
     final hasLocation = _myLat != null && _myLng != null;
     final deliveryLat = order.deliveryAddress.latitude;
     final deliveryLng = order.deliveryAddress.longitude;
@@ -237,7 +239,7 @@ class _OrderTrackingScreenState extends ConsumerState<OrderTrackingScreen> {
                 latitude: deliveryLat,
                 longitude: deliveryLng,
                 kind: AppMapMarkerKind.delivery,
-                title: 'Delivery Location',
+                title: l.deliveryLocation,
               ),
               if (hasLocation)
                 AppMapMarker(
@@ -245,7 +247,7 @@ class _OrderTrackingScreenState extends ConsumerState<OrderTrackingScreen> {
                   latitude: _myLat!,
                   longitude: _myLng!,
                   kind: AppMapMarkerKind.driver,
-                  title: 'You',
+                  title: l.you,
                 ),
             },
           ),
@@ -302,7 +304,7 @@ class _OrderTrackingScreenState extends ConsumerState<OrderTrackingScreen> {
                     const SizedBox(height: 20),
 
                     Text(
-                      'Delivering Order',
+                      l.deliveringOrder,
                       style: const TextStyle(
                           fontSize: 22, fontWeight: FontWeight.bold),
                     ),
@@ -330,8 +332,8 @@ class _OrderTrackingScreenState extends ConsumerState<OrderTrackingScreen> {
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                const Text('Delivery Address',
-                                    style: TextStyle(
+                                Text(l.deliveryAddress,
+                                    style: const TextStyle(
                                         fontWeight: FontWeight.bold,
                                         fontSize: 13,
                                         color: AppColors.textSecondary)),
@@ -407,9 +409,9 @@ class _OrderTrackingScreenState extends ConsumerState<OrderTrackingScreen> {
                         child: ElevatedButton.icon(
                           onPressed: _markPickedUp,
                           icon: const Icon(Icons.shopping_bag_outlined),
-                          label: const Text(
-                            'Mark as Picked Up',
-                            style: TextStyle(
+                          label: Text(
+                            l.markPickedUp,
+                            style: const TextStyle(
                                 fontSize: 17, fontWeight: FontWeight.bold),
                           ),
                           style: ElevatedButton.styleFrom(
@@ -430,9 +432,9 @@ class _OrderTrackingScreenState extends ConsumerState<OrderTrackingScreen> {
                         child: ElevatedButton.icon(
                           onPressed: _startDelivery,
                           icon: const Icon(Icons.directions_car_rounded),
-                          label: const Text(
-                            'Start Delivery (On the Way)',
-                            style: TextStyle(
+                          label: Text(
+                            l.startDelivery,
+                            style: const TextStyle(
                                 fontSize: 17, fontWeight: FontWeight.bold),
                           ),
                           style: ElevatedButton.styleFrom(
@@ -453,9 +455,9 @@ class _OrderTrackingScreenState extends ConsumerState<OrderTrackingScreen> {
                         child: ElevatedButton.icon(
                           onPressed: _confirmDelivery,
                           icon: const Icon(Icons.check_circle_outline),
-                          label: const Text(
-                            'Confirm Delivery',
-                            style: TextStyle(
+                          label: Text(
+                            l.confirmDelivery,
+                            style: const TextStyle(
                                 fontSize: 17, fontWeight: FontWeight.bold),
                           ),
                           style: ElevatedButton.styleFrom(
@@ -476,13 +478,13 @@ class _OrderTrackingScreenState extends ConsumerState<OrderTrackingScreen> {
                           borderRadius: BorderRadius.circular(12),
                           border: Border.all(color: AppColors.success),
                         ),
-                        child: const Row(
+                        child: Row(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            Icon(Icons.check_circle, color: AppColors.success),
-                            SizedBox(width: 8),
-                            Text('Delivery Completed!',
-                                style: TextStyle(
+                            const Icon(Icons.check_circle, color: AppColors.success),
+                            const SizedBox(width: 8),
+                            Text(l.deliveryCompleted,
+                                style: const TextStyle(
                                     color: AppColors.success,
                                     fontWeight: FontWeight.bold,
                                     fontSize: 16)),

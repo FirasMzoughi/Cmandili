@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:cmandili_partner/l10n/app_localizations.dart';
 import '../../../core/theme/app_colors.dart';
 import '../providers/address_provider.dart';
 
@@ -9,10 +10,11 @@ class SavedAddressesScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final addresses = ref.watch(addressProvider);
+    final l = AppLocalizations.of(context)!;
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Saved Addresses', style: TextStyle(fontWeight: FontWeight.bold)),
+        title: Text(l.savedAddresses, style: const TextStyle(fontWeight: FontWeight.bold)),
         centerTitle: true,
         actions: [
           IconButton(
@@ -22,7 +24,7 @@ class SavedAddressesScreen extends ConsumerWidget {
         ],
       ),
       body: addresses.isEmpty
-          ? const Center(child: Text('No addresses saved'))
+          ? Center(child: Text(l.noAddressesSaved))
           : ListView.builder(
               padding: const EdgeInsets.all(16),
               itemCount: addresses.length,
@@ -35,7 +37,7 @@ class SavedAddressesScreen extends ConsumerWidget {
                   onDismissed: (direction) {
                     ref.read(addressProvider.notifier).deleteAddress(address.id);
                     ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Address removed')),
+                      SnackBar(content: Text(l.addressRemoved)),
                     );
                   },
                   child: Card(
@@ -50,15 +52,15 @@ class SavedAddressesScreen extends ConsumerWidget {
                       title: Text(address.name, style: const TextStyle(fontWeight: FontWeight.bold)),
                       subtitle: Text(address.fullAddress),
                       trailing: address.isDefault
-                          ? const Chip(
-                              label: Text('Default', style: TextStyle(fontSize: 10, color: Colors.white)),
+                          ? Chip(
+                              label: Text(l.defaultLabel, style: const TextStyle(fontSize: 10, color: Colors.white)),
                               backgroundColor: AppColors.primary,
                             )
                           : TextButton(
                               onPressed: () {
                                 ref.read(addressProvider.notifier).setDefault(address.id);
                               },
-                              child: const Text('Set Default'),
+                              child: Text(l.setDefault),
                             ),
                     ),
                   ),
@@ -80,22 +82,23 @@ class SavedAddressesScreen extends ConsumerWidget {
   void _showAddAddressDialog(BuildContext context, WidgetRef ref) {
     final nameController = TextEditingController();
     final addressController = TextEditingController();
+    final l = AppLocalizations.of(context)!;
 
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Add New Address'),
+        title: Text(l.addNewAddress),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             TextField(
               controller: nameController,
-              decoration: const InputDecoration(labelText: 'Label (e.g., Home, Work)'),
+              decoration: InputDecoration(labelText: l.labelHint),
             ),
             const SizedBox(height: 12),
             TextField(
               controller: addressController,
-              decoration: const InputDecoration(labelText: 'Full Address'),
+              decoration: InputDecoration(labelText: l.fullAddressLabel),
               maxLines: 2,
             ),
           ],
@@ -103,7 +106,7 @@ class SavedAddressesScreen extends ConsumerWidget {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
+            child: Text(l.cancel),
           ),
           ElevatedButton(
             onPressed: () {
@@ -115,7 +118,7 @@ class SavedAddressesScreen extends ConsumerWidget {
                 Navigator.pop(context);
               }
             },
-            child: const Text('Save'),
+            child: Text(l.save),
           ),
         ],
       ),

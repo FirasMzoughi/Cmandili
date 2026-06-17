@@ -165,4 +165,258 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get locationPermissionDenied => 'Location permission denied';
+
+  @override
+  String get savedAddresses => 'Saved Addresses';
+
+  @override
+  String get noAddressesSaved => 'No addresses saved';
+
+  @override
+  String get addressRemoved => 'Address removed';
+
+  @override
+  String get setDefault => 'Set Default';
+
+  @override
+  String get addNewAddress => 'Add New Address';
+
+  @override
+  String get labelHint => 'Label (e.g., Home, Work)';
+
+  @override
+  String get fullAddressLabel => 'Full Address';
+
+  @override
+  String get defaultLabel => 'Default';
+
+  @override
+  String get paymentMethods => 'Payment Methods';
+
+  @override
+  String get noPaymentMethods => 'No payment methods saved';
+
+  @override
+  String get addNewCard => 'Add New Card';
+
+  @override
+  String get cardholderName => 'Cardholder Name';
+
+  @override
+  String get cardNumber => 'Card Number';
+
+  @override
+  String get expiryDate => 'Expiry Date (MM/YY)';
+
+  @override
+  String get vehicleInfoSaved => 'Vehicle info saved';
+
+  @override
+  String get vehicleInfo => 'Vehicle Info';
+
+  @override
+  String get vehicleType => 'Vehicle Type';
+
+  @override
+  String get vehicleMakeHint => 'Make (e.g. Yamaha)';
+
+  @override
+  String get required => 'Required';
+
+  @override
+  String get vehicleModelHint => 'Model (e.g. NMAX)';
+
+  @override
+  String get licensePlate => 'License Plate';
+
+  @override
+  String get color => 'Color';
+
+  @override
+  String get saveVehicleInfo => 'Save Vehicle Info';
+
+  @override
+  String get pleaseSignInFirst => 'Please sign in first.';
+
+  @override
+  String get supportTicketSent =>
+      'Support ticket sent! We will contact you soon.';
+
+  @override
+  String get helpSupport => 'Help & Support';
+
+  @override
+  String get howCanWeHelp => 'How can we help you?';
+
+  @override
+  String get fillFormDescription =>
+      'Fill out the form below and our team will get back to you within 24 hours.';
+
+  @override
+  String get subject => 'Subject';
+
+  @override
+  String get pleaseEnterSubject => 'Please enter a subject';
+
+  @override
+  String get message => 'Message';
+
+  @override
+  String get pleaseEnterMessage => 'Please enter your message';
+
+  @override
+  String get submitTicket => 'Submit Ticket';
+
+  @override
+  String get profileUpdated => 'Profile updated successfully!';
+
+  @override
+  String get failedToUpdateProfile => 'Failed to update profile.';
+
+  @override
+  String get editProfile => 'Edit Profile';
+
+  @override
+  String get phoneNumberLabel => 'Phone Number';
+
+  @override
+  String get bio => 'Bio';
+
+  @override
+  String get saveChanges => 'Save Changes';
+
+  @override
+  String get pleaseEnterName => 'Please enter your name';
+
+  @override
+  String get payoutInfoSaved => 'Payout info saved';
+
+  @override
+  String get earningsAndStatus => 'Earnings & Status';
+
+  @override
+  String get youAreOnline => 'You are Online';
+
+  @override
+  String get youAreOffline => 'You are Offline';
+
+  @override
+  String get canReceiveOrders => 'You can receive new orders';
+
+  @override
+  String get turnOnToReceive => 'Turn on to receive orders';
+
+  @override
+  String get bankPayoutInfo => 'Bank Payout Info';
+
+  @override
+  String get payoutsWeekly => 'Payouts are sent weekly to your bank account.';
+
+  @override
+  String get accountHolderName => 'Account Holder Name';
+
+  @override
+  String get bankName => 'Bank Name';
+
+  @override
+  String get ibanRib => 'IBAN / RIB';
+
+  @override
+  String get enterValidIban => 'Enter a valid IBAN/RIB';
+
+  @override
+  String get savePayoutInfo => 'Save Payout Info';
+
+  @override
+  String get account => 'Account';
+
+  @override
+  String get earningsAndPayout => 'Earnings & Payout';
+
+  @override
+  String get delivery => 'Delivery';
+
+  @override
+  String get you => 'You';
+
+  @override
+  String get deliveryAddress => 'Delivery Address';
+
+  @override
+  String get customer => 'Customer';
+
+  @override
+  String get deliveryHistory => 'Delivery History';
+
+  @override
+  String get completedDeliveriesAppearHere =>
+      'Completed deliveries will appear here';
+
+  @override
+  String get delivered => 'Delivered';
+
+  @override
+  String get today => 'Today';
+
+  @override
+  String get thisWeek => 'This Week';
+
+  @override
+  String get thisMonth => 'This Month';
+
+  @override
+  String get locationOff =>
+      'Location is off. Turn on Location in your phone settings.';
+
+  @override
+  String get locationDeniedSettings =>
+      'Location permission denied. Grant it in app settings.';
+
+  @override
+  String get driverDashboard => 'Driver Dashboard';
+
+  @override
+  String get youHaveActiveDelivery => 'You have an active delivery';
+
+  @override
+  String get readyForOrders => 'Ready for orders';
+
+  @override
+  String get youreOfflineFlip => 'You\'re offline — flip the switch to start';
+
+  @override
+  String get available => 'Available';
+
+  @override
+  String get active => 'Active';
+
+  @override
+  String get activeDelivery => 'Active Delivery';
+
+  @override
+  String get yourLocation => 'Your Location';
+
+  @override
+  String get expand => 'Expand';
+
+  @override
+  String get ordersWaitingForDriver => 'order(s) waiting for a driver';
+
+  @override
+  String get viewAvailableOrders => 'View Available Orders';
+
+  @override
+  String get onTheWay => 'On the Way';
+
+  @override
+  String get noActiveDelivery => 'No active delivery';
+
+  @override
+  String get acceptOrderToStart => 'Accept an order to start delivering';
+
+  @override
+  String get browseAvailableOrders => 'Browse Available Orders';
+
+  @override
+  String get orders => 'Orders';
 }

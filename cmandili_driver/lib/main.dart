@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -23,36 +24,38 @@ import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  await dotenv.load(fileName: ".env");
+  // dotenv MUST resolve first — SupabaseConfig and the Mapbox token both
+  // read from it. Then run the remaining independent cold-start work in
+  // parallel (Firebase init + SharedPreferences load + Supabase bootstrap).
+  await dotenv.load(fileName: '.env');
 
-  // Mapbox runtime token. Public (pk.*) only — never the sk.* download token.
-  // The map view will fail to render if this is empty or wrong.
   MapboxOptions.setAccessToken(dotenv.env['MAPBOX_PUBLIC_TOKEN'] ?? '');
 
-  await Supabase.initialize(
-    url: SupabaseConfig.url,
-    anonKey: SupabaseConfig.anonKey,
-  );
-
-  // Firebase + FCM push. If init fails, app still runs but push is disabled.
-  try {
-    await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
-    await PushService.instance.initialize();
-  } catch (_) {}
-
-  // Persist Supabase credentials so the background isolate can initialize them.
-  final prefs = await SharedPreferences.getInstance();
-  await prefs.setString('supabase_url', SupabaseConfig.url);
-  await prefs.setString('supabase_anon_key', SupabaseConfig.anonKey);
-
-  // Initialize background service configuration (does not start it yet).
-  await BackgroundLocationService.initialize();
-  
-  runApp(
-    const ProviderScope(
-      child: MyApp(),
+  late SharedPreferences prefs;
+  await Future.wait([
+    Supabase.initialize(
+      url: SupabaseConfig.url,
+      anonKey: SupabaseConfig.anonKey,
     ),
-  );
+    Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform)
+        .catchError((_) => Firebase.app()),
+    SharedPreferences.getInstance().then((p) => prefs = p),
+  ]);
+
+  // Persist Supabase credentials so the background isolate can initialize.
+  // Fire-and-forget — these reads happen later from a different isolate.
+  unawaited(prefs.setString('supabase_url', SupabaseConfig.url));
+  unawaited(prefs.setString('supabase_anon_key', SupabaseConfig.anonKey));
+
+  runApp(const ProviderScope(child: MyApp()));
+
+  // Defer push registration AND background-location config off the critical
+  // path — both touch native plugins / network and aren't needed for the
+  // first frame.
+  WidgetsBinding.instance.addPostFrameCallback((_) {
+    PushService.instance.initialize().catchError((_) {});
+    BackgroundLocationService.initialize().catchError((_) {});
+  });
 }
 
 class MyApp extends ConsumerWidget {

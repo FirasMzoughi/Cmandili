@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:url_launcher/url_launcher.dart';
+import 'package:cmandili_partner/l10n/app_localizations.dart';
 import '../../../core/theme/app_colors.dart';
 import '../data/models/order.dart';
 import '../providers/partner_orders_provider.dart';
+import 'widgets/voice_note_player.dart';
 
 class OrderDetailScreen extends ConsumerWidget {
   final Order order;
@@ -11,6 +14,7 @@ class OrderDetailScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final statusColor = _statusColor(order.status);
+    final l = AppLocalizations.of(context)!;
 
     return Scaffold(
       backgroundColor: AppColors.background,
@@ -47,7 +51,7 @@ class OrderDetailScreen extends ConsumerWidget {
                 if (order.status != OrderStatus.delivered && order.status != OrderStatus.cancelled)
                   TextButton(
                     onPressed: () => _showStatusSheet(context, ref),
-                    child: const Text('Update'),
+                    child: Text(l.update),
                   ),
               ],
             ),
@@ -55,9 +59,14 @@ class OrderDetailScreen extends ConsumerWidget {
 
           const SizedBox(height: 16),
 
+          // Customer
+          _CustomerSection(order: order),
+
+          const SizedBox(height: 12),
+
           // Delivery address
           _Section(
-            title: 'Delivery Address',
+            title: l.deliveryAddress,
             child: Row(
               children: [
                 const Icon(Icons.location_on, color: AppColors.primary, size: 20),
@@ -78,7 +87,7 @@ class OrderDetailScreen extends ConsumerWidget {
 
           // Payment
           _Section(
-            title: 'Payment',
+            title: l.payment,
             child: Row(
               children: [
                 const Icon(Icons.payments_outlined, color: AppColors.textSecondary, size: 20),
@@ -96,7 +105,7 @@ class OrderDetailScreen extends ConsumerWidget {
           if (order.notes != null && order.notes!.isNotEmpty) ...[
             const SizedBox(height: 12),
             _Section(
-              title: 'Customer Notes',
+              title: l.customerNotes,
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -112,7 +121,7 @@ class OrderDetailScreen extends ConsumerWidget {
 
           // Order items with customizations
           _Section(
-            title: 'Items (${order.items.length})',
+            title: '${l.items} (${order.items.length})',
             child: Column(
               children: order.items.map((item) => _ItemRow(item: item)).toList(),
             ),
@@ -122,14 +131,14 @@ class OrderDetailScreen extends ConsumerWidget {
 
           // Price breakdown
           _Section(
-            title: 'Price Breakdown',
+            title: l.priceBreakdown,
             child: Column(
               children: [
                 _PriceRow(label: 'Subtotal', value: order.subtotal),
                 const SizedBox(height: 8),
-                _PriceRow(label: 'Delivery Fee', value: order.deliveryFee),
+                _PriceRow(label: l.deliveryFee, value: order.deliveryFee),
                 const Divider(height: 20),
-                _PriceRow(label: 'Total', value: order.total, isBold: true),
+                _PriceRow(label: l.total, value: order.total, isBold: true),
               ],
             ),
           ),
@@ -137,12 +146,12 @@ class OrderDetailScreen extends ConsumerWidget {
           if (order.driverId != null) ...[
             const SizedBox(height: 12),
             _Section(
-              title: 'Driver',
+              title: l.driver,
               child: Row(
                 children: [
                   const Icon(Icons.delivery_dining, color: AppColors.primary, size: 20),
                   const SizedBox(width: 10),
-                  Text(order.driverName ?? 'Assigned', style: const TextStyle(fontSize: 15)),
+                  Text(order.driverName ?? l.assigned, style: const TextStyle(fontSize: 15)),
                   if (order.driverPhone != null) ...[
                     const Spacer(),
                     Text(order.driverPhone!, style: const TextStyle(color: AppColors.textSecondary)),
@@ -166,7 +175,7 @@ class OrderDetailScreen extends ConsumerWidget {
                   foregroundColor: Colors.white,
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
                 ),
-                child: const Text('Update Order Status', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                child: Text(l.updateOrderStatus, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
               ),
             ),
         ],
@@ -192,7 +201,7 @@ class OrderDetailScreen extends ConsumerWidget {
               ),
             ),
             const SizedBox(height: 16),
-            const Text('Update Order Status', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            Text(AppLocalizations.of(ctx)!.updateOrderStatus, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
             const SizedBox(height: 20),
             ...nextStatuses.map((s) => ListTile(
               contentPadding: EdgeInsets.zero,
@@ -201,11 +210,19 @@ class OrderDetailScreen extends ConsumerWidget {
                 decoration: BoxDecoration(color: _statusColor(s).withValues(alpha: 0.12), borderRadius: BorderRadius.circular(12)),
                 child: Icon(_statusIcon(s), color: _statusColor(s), size: 20),
               ),
-              title: Text(_statusLabel(s), style: const TextStyle(fontWeight: FontWeight.w600)),
+              title: Text(_statusLabel(s, ctx), style: const TextStyle(fontWeight: FontWeight.w600)),
               onTap: () async {
                 Navigator.pop(ctx);
-                await ref.read(partnerOrderRepositoryProvider).updateOrderStatus(order.id, s);
-                if (context.mounted) Navigator.pop(context);
+                final messenger = ScaffoldMessenger.of(context);
+                try {
+                  await ref.read(partnerOrderRepositoryProvider).updateOrderStatus(order.id, s);
+                  if (context.mounted) Navigator.pop(context);
+                } catch (e) {
+                  messenger.showSnackBar(SnackBar(
+                    content: Text('Failed to update order: $e'),
+                    backgroundColor: AppColors.error,
+                  ));
+                }
               },
             )),
           ],
@@ -252,15 +269,16 @@ class OrderDetailScreen extends ConsumerWidget {
     }
   }
 
-  String _statusLabel(OrderStatus s) {
+  String _statusLabel(OrderStatus s, BuildContext context) {
+    final l = AppLocalizations.of(context)!;
     switch (s) {
-      case OrderStatus.confirmed: return 'Confirm Order';
-      case OrderStatus.preparing: return 'Start Preparing';
-      case OrderStatus.ready: return 'Mark as Ready';
-      case OrderStatus.pickedUp: return 'Picked Up';
-      case OrderStatus.onTheWay: return 'Out for Delivery';
-      case OrderStatus.delivered: return 'Mark as Delivered';
-      case OrderStatus.cancelled: return 'Cancel Order';
+      case OrderStatus.confirmed: return l.confirmOrder;
+      case OrderStatus.preparing: return l.startPreparing;
+      case OrderStatus.ready: return l.markAsReady;
+      case OrderStatus.pickedUp: return l.pickedUp;
+      case OrderStatus.onTheWay: return l.outForDelivery;
+      case OrderStatus.delivered: return l.markAsDelivered;
+      case OrderStatus.cancelled: return l.cancelOrder;
       default: return s.toString().split('.').last;
     }
   }
@@ -289,7 +307,7 @@ class _ItemRow extends StatelessWidget {
             children: [
               Expanded(
                 child: Text(
-                  '${item.quantity}× ${item.name}',
+                  '${item.quantity}× ${item.displayName}',
                   style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
                 ),
               ),
@@ -316,25 +334,34 @@ class _ItemRow extends StatelessWidget {
             ),
           ],
           if (hasVoice) ...[
-            const SizedBox(height: 4),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-              decoration: BoxDecoration(
-                color: AppColors.primary.withValues(alpha: 0.08),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Icon(Icons.mic_rounded, size: 14, color: AppColors.primary),
-                  const SizedBox(width: 6),
-                  Text(
-                    duration != null ? 'Voice note (${duration}s)' : 'Voice note',
-                    style: const TextStyle(fontSize: 12, color: AppColors.primary, fontWeight: FontWeight.w500),
-                  ),
-                ],
-              ),
-            ),
+            const SizedBox(height: 6),
+            Builder(builder: (_) {
+              final url = item.voiceNoteContent as String;
+              // Only render the player for HTTP URLs (uploaded clips). Older
+              // orders may still hold a local file path that the partner can't
+              // play; show the static badge for those.
+              if (url.startsWith('http')) {
+                return VoiceNotePlayer(url: url, durationSeconds: duration);
+              }
+              return Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                decoration: BoxDecoration(
+                  color: AppColors.primary.withValues(alpha: 0.08),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.mic_rounded, size: 14, color: AppColors.primary),
+                    const SizedBox(width: 6),
+                    Text(
+                      duration != null ? 'Voice note (${duration}s)' : 'Voice note',
+                      style: const TextStyle(fontSize: 12, color: AppColors.primary, fontWeight: FontWeight.w500),
+                    ),
+                  ],
+                ),
+              );
+            }),
           ],
           if (item != (context.findAncestorWidgetOfExactType<Column>()?.children.last))
             const Divider(height: 16),
@@ -364,6 +391,73 @@ class _Section extends StatelessWidget {
           Text(title, style: const TextStyle(fontSize: 13, color: AppColors.textSecondary, fontWeight: FontWeight.w600)),
           const SizedBox(height: 10),
           child,
+        ],
+      ),
+    );
+  }
+}
+
+class _CustomerSection extends StatelessWidget {
+  final Order order;
+  const _CustomerSection({required this.order});
+
+  String? get _name {
+    if ((order.customerName ?? '').isNotEmpty) return order.customerName;
+    if ((order.deliveryAddress.recipientName ?? '').isNotEmpty) {
+      return order.deliveryAddress.recipientName;
+    }
+    return null;
+  }
+
+  String? get _phone {
+    if ((order.customerPhone ?? '').isNotEmpty) return order.customerPhone;
+    if ((order.deliveryAddress.phone ?? '').isNotEmpty) {
+      return order.deliveryAddress.phone;
+    }
+    return null;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final l = AppLocalizations.of(context)!;
+    final name = _name ?? l.customer;
+    final phone = _phone;
+    return _Section(
+      title: l.customer,
+      child: Row(
+        children: [
+          Container(
+            width: 40, height: 40,
+            decoration: BoxDecoration(
+              color: AppColors.primary.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: const Icon(Icons.person, color: AppColors.primary),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(name, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15)),
+                if (phone != null) ...[
+                  const SizedBox(height: 2),
+                  Text(phone, style: const TextStyle(color: AppColors.textSecondary, fontSize: 13)),
+                ],
+              ],
+            ),
+          ),
+          if (phone != null)
+            IconButton(
+              tooltip: l.callCustomer,
+              icon: const Icon(Icons.phone, color: AppColors.success),
+              onPressed: () async {
+                final uri = Uri(scheme: 'tel', path: phone);
+                if (await canLaunchUrl(uri)) {
+                  await launchUrl(uri);
+                }
+              },
+            ),
         ],
       ),
     );

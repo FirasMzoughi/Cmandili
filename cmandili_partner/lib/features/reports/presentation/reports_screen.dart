@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:cmandili_partner/l10n/app_localizations.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../auth/providers/auth_provider.dart';
 
@@ -72,11 +73,12 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
   @override
   Widget build(BuildContext context) {
     final statsAsync = ref.watch(_reportsProvider(_period));
+    final l = AppLocalizations.of(context)!;
 
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
-        title: const Text('Reports & Analytics', style: TextStyle(fontWeight: FontWeight.bold)),
+        title: Text(l.reportsAnalytics, style: const TextStyle(fontWeight: FontWeight.bold)),
         centerTitle: true,
         backgroundColor: AppColors.background,
         elevation: 0,
@@ -93,9 +95,9 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
             ),
             child: Row(
               children: [
-                _PeriodTab(label: 'Today', value: 'today', selected: _period, onTap: (v) => setState(() => _period = v)),
-                _PeriodTab(label: 'This Week', value: 'week', selected: _period, onTap: (v) => setState(() => _period = v)),
-                _PeriodTab(label: 'This Month', value: 'month', selected: _period, onTap: (v) => setState(() => _period = v)),
+                _PeriodTab(label: l.today, value: 'today', selected: _period, onTap: (v) => setState(() => _period = v)),
+                _PeriodTab(label: l.thisWeek, value: 'week', selected: _period, onTap: (v) => setState(() => _period = v)),
+                _PeriodTab(label: l.thisMonth, value: 'month', selected: _period, onTap: (v) => setState(() => _period = v)),
               ],
             ),
           ),
@@ -112,12 +114,12 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
                   children: [
                     const Icon(Icons.error_outline, size: 48, color: AppColors.error),
                     const SizedBox(height: 12),
-                    const Text('Could not load reports', style: TextStyle(fontSize: 16)),
+                    Text(l.couldNotLoadReports, style: const TextStyle(fontSize: 16)),
                     const SizedBox(height: 16),
                     ElevatedButton.icon(
                       onPressed: () => ref.invalidate(_reportsProvider(_period)),
                       icon: const Icon(Icons.refresh),
-                      label: const Text('Retry'),
+                      label: Text(l.retry),
                     ),
                   ],
                 ),
@@ -136,7 +138,7 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text('Total Revenue', style: TextStyle(color: Colors.white70, fontSize: 14)),
+                      Text(l.totalRevenue, style: const TextStyle(color: Colors.white70, fontSize: 14)),
                       const SizedBox(height: 8),
                       Text(
                         '${(stats['totalRevenue'] as double).toStringAsFixed(2)} DT',
@@ -156,18 +158,18 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
                 // Stats grid
                 Row(
                   children: [
-                    Expanded(child: _StatCard(label: 'Total Orders', value: '${stats['totalOrders']}', icon: Icons.receipt_long_rounded, color: AppColors.primary)),
+                    Expanded(child: _StatCard(label: l.totalOrders, value: '${stats['totalOrders']}', icon: Icons.receipt_long_rounded, color: AppColors.primary)),
                     const SizedBox(width: 12),
-                    Expanded(child: _StatCard(label: 'Delivered', value: '${stats['deliveredOrders']}', icon: Icons.check_circle_rounded, color: AppColors.success)),
+                    Expanded(child: _StatCard(label: l.delivered, value: '${stats['deliveredOrders']}', icon: Icons.check_circle_rounded, color: AppColors.success)),
                   ],
                 ),
                 const SizedBox(height: 12),
                 Row(
                   children: [
-                    Expanded(child: _StatCard(label: 'Cancelled', value: '${stats['cancelledOrders']}', icon: Icons.cancel_rounded, color: AppColors.error)),
+                    Expanded(child: _StatCard(label: l.cancelled, value: '${stats['cancelledOrders']}', icon: Icons.cancel_rounded, color: AppColors.error)),
                     const SizedBox(width: 12),
                     Expanded(child: _StatCard(
-                      label: 'Success Rate',
+                      label: l.successRate,
                       value: stats['totalOrders'] > 0
                           ? '${((stats['deliveredOrders'] / stats['totalOrders']) * 100).toStringAsFixed(0)}%'
                           : '—',

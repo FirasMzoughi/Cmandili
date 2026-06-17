@@ -48,6 +48,10 @@ class Order {
   final String? packageDescription;
   final bool isRecipientAccepted;
 
+  // Customer display info resolved by orders_with_customer view.
+  final String? customerName;
+  final String? customerPhone;
+
   Order({
     required this.id,
     required this.userId,
@@ -74,6 +78,8 @@ class Order {
     this.recipientPhone,
     this.packageDescription,
     this.isRecipientAccepted = false,
+    this.customerName,
+    this.customerPhone,
   });
 
   factory Order.fromJson(Map<String, dynamic> json) {
@@ -116,6 +122,8 @@ class Order {
       recipientPhone: json['recipientPhone'],
       packageDescription: json['packageDescription'],
       isRecipientAccepted: json['isRecipientAccepted'] ?? false,
+      customerName: json['customerName'] as String?,
+      customerPhone: json['customerPhone'] as String?,
     );
   }
 

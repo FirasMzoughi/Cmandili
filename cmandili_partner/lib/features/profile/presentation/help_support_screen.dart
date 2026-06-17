@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:cmandili_partner/l10n/app_localizations.dart';
 import '../../../core/theme/app_colors.dart';
 
 class HelpSupportScreen extends StatefulWidget {
@@ -40,8 +41,8 @@ class _HelpSupportScreenState extends State<HelpSupportScreen> {
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Support ticket sent! We will contact you soon.'),
+          SnackBar(
+            content: Text(AppLocalizations.of(context)!.supportTicketSent),
             backgroundColor: Colors.green,
           ),
         );
@@ -50,8 +51,8 @@ class _HelpSupportScreenState extends State<HelpSupportScreen> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Failed to send ticket. Please try again.'),
+          SnackBar(
+            content: Text(AppLocalizations.of(context)!.failedToSendTicket),
             backgroundColor: AppColors.error,
           ),
         );
@@ -63,10 +64,11 @@ class _HelpSupportScreenState extends State<HelpSupportScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final l = AppLocalizations.of(context)!;
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Help & Support',
-            style: TextStyle(fontWeight: FontWeight.bold)),
+        title: Text(l.helpSupport,
+            style: const TextStyle(fontWeight: FontWeight.bold)),
         centerTitle: true,
       ),
       body: SingleChildScrollView(
@@ -76,22 +78,22 @@ class _HelpSupportScreenState extends State<HelpSupportScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              const Text(
-                'How can we help you?',
-                style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+              Text(
+                l.howCanWeHelp,
+                style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
                 textAlign: TextAlign.center,
               ),
               const SizedBox(height: 10),
-              const Text(
-                'Fill out the form below and our team will get back to you within 24 hours.',
-                style: TextStyle(fontSize: 14, color: Colors.grey),
+              Text(
+                l.fillFormDescription,
+                style: const TextStyle(fontSize: 14, color: Colors.grey),
                 textAlign: TextAlign.center,
               ),
               const SizedBox(height: 30),
               TextFormField(
                 controller: _subjectController,
                 decoration: InputDecoration(
-                  labelText: 'Subject',
+                  labelText: l.subject,
                   prefixIcon:
                       const Icon(Icons.title, color: AppColors.primary),
                   border: OutlineInputBorder(
@@ -105,7 +107,7 @@ class _HelpSupportScreenState extends State<HelpSupportScreen> {
                 controller: _messageController,
                 maxLines: 6,
                 decoration: InputDecoration(
-                  labelText: 'Message',
+                  labelText: l.message,
                   alignLabelWithHint: true,
                   prefixIcon: const Padding(
                     padding: EdgeInsets.only(bottom: 100),
@@ -134,21 +136,21 @@ class _HelpSupportScreenState extends State<HelpSupportScreen> {
                         child:
                             CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
                       )
-                    : const Text('Submit Ticket',
-                        style: TextStyle(
+                    : Text(l.submitTicket,
+                        style: const TextStyle(
                             fontSize: 16,
                             color: Colors.white,
                             fontWeight: FontWeight.bold)),
               ),
               const SizedBox(height: 30),
-              const _ContactOption(
+              _ContactOption(
                 icon: Icons.email_outlined,
-                title: 'Email Us',
+                title: l.emailUs,
                 subtitle: 'support@cmandili.com',
               ),
-              const _ContactOption(
+              _ContactOption(
                 icon: Icons.phone_outlined,
-                title: 'Call Us',
+                title: l.callUs,
                 subtitle: '+216 71 123 456',
               ),
             ],

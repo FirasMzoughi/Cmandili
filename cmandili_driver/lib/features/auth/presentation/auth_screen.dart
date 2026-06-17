@@ -5,6 +5,7 @@ import '../../../core/theme/app_colors.dart';
 import '../providers/auth_provider.dart';
 import 'package:cmandili_driver/l10n/app_localizations.dart';
 import '../../../core/providers/localization_provider.dart';
+import 'forgot_password_screen.dart';
 
 class AuthScreen extends ConsumerStatefulWidget {
   const AuthScreen({super.key});
@@ -460,7 +461,37 @@ class _AuthScreenState extends ConsumerState<AuthScreen>
                                         screenWidth: screenWidth,
                                         screenHeight: screenHeight,
                                       ),
-                                      SizedBox(height: screenHeight * 0.025),
+
+                                      // "Forgot Password?" — only on Sign In tab
+                                      if (_tabController.index == 0)
+                                        Align(
+                                          alignment: Alignment.centerRight,
+                                          child: TextButton(
+                                            onPressed: () => Navigator.push(
+                                              context,
+                                              MaterialPageRoute(
+                                                builder: (_) => const ForgotPasswordScreen(),
+                                              ),
+                                            ),
+                                            style: TextButton.styleFrom(
+                                              foregroundColor: AppColors.primary,
+                                              padding: EdgeInsets.symmetric(
+                                                horizontal: screenWidth * 0.01,
+                                                vertical: screenHeight * 0.005,
+                                              ),
+                                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                            ),
+                                            child: Text(
+                                              'Forgot Password?',
+                                              style: TextStyle(
+                                                fontSize: screenWidth * 0.037,
+                                                fontWeight: FontWeight.w600,
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+
+                                      SizedBox(height: screenHeight * 0.015),
 
                                       // Main Action Button
                                       SizedBox(

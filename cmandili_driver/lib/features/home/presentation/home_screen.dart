@@ -3,10 +3,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:geocoding/geocoding.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:cmandili_driver/l10n/app_localizations.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/widgets/app_map.dart';
+import '../../../core/push/push_service.dart';
 import '../../orders/presentation/available_orders_screen.dart';
 import '../../orders/presentation/order_tracking_screen.dart';
+import '../../orders/presentation/widgets/order_offer_dialog.dart';
 import '../../orders/providers/driver_online_provider.dart';
 import '../../orders/providers/driver_orders_provider.dart';
 import '../../profile/presentation/profile_screen.dart';
@@ -21,10 +24,52 @@ class HomeScreen extends ConsumerStatefulWidget {
 
 class _HomeScreenState extends ConsumerState<HomeScreen> {
   int _selectedIndex = 0;
+  StreamSubscription<OrderOffer>? _offerSub;
+  bool _offerOpen = false; // guards against stacking dialogs on rapid pushes
+
+  @override
+  void initState() {
+    super.initState();
+    // Listen for 10s order offers pushed by the backend. Subscribed here in
+    // the home screen because offers are app-wide — not specific to any tab —
+    // and the home screen lives for the duration of the authenticated
+    // session, matching the lifetime we want for the listener.
+    _offerSub = PushService.instance.offerStream.listen(_onOffer);
+  }
+
+  @override
+  void dispose() {
+    _offerSub?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _onOffer(OrderOffer offer) async {
+    if (!mounted || _offerOpen) return;
+    _offerOpen = true;
+    try {
+      final accepted = await showDialog<bool>(
+        context: context,
+        barrierDismissible: false,
+        builder: (_) => OrderOfferDialog(orderId: offer.orderId),
+      );
+      // On accept, jump to the orders tab so the driver sees the offer card
+      // in context and can tap "Accept Order" — the existing accept flow
+      // (delivery row + driver_id) is unchanged.
+      if (accepted == true && mounted) {
+        setState(() => _selectedIndex = 1);
+        // Force the available-orders list to refresh in case streaming hasn't
+        // surfaced the assigned order yet.
+        ref.invalidate(availableOrdersProvider);
+      }
+    } finally {
+      _offerOpen = false;
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     final activeDeliveryAsync = ref.watch(activeDeliveryProvider);
+    final l = AppLocalizations.of(context)!;
 
     final pages = [
       _DashboardTab(onGoToOrders: () => setState(() => _selectedIndex = 1)),
@@ -61,11 +106,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              _NavItem(index: 0, icon: Icons.dashboard_rounded, label: 'Home', selected: _selectedIndex == 0, onTap: () => setState(() => _selectedIndex = 0)),
-              _NavItem(index: 1, icon: Icons.delivery_dining_rounded, label: 'Orders', selected: _selectedIndex == 1, onTap: () => setState(() => _selectedIndex = 1)),
-              _NavItem(index: 2, icon: Icons.navigation_rounded, label: 'Active', selected: _selectedIndex == 2, onTap: () => setState(() => _selectedIndex = 2)),
-              _NavItem(index: 3, icon: Icons.account_balance_wallet_rounded, label: 'Earnings', selected: _selectedIndex == 3, onTap: () => setState(() => _selectedIndex = 3)),
-              _NavItem(index: 4, icon: Icons.person_rounded, label: 'Profile', selected: _selectedIndex == 4, onTap: () => setState(() => _selectedIndex = 4)),
+              _NavItem(index: 0, icon: Icons.dashboard_rounded, label: l.home, selected: _selectedIndex == 0, onTap: () => setState(() => _selectedIndex = 0)),
+              _NavItem(index: 1, icon: Icons.delivery_dining_rounded, label: l.orders, selected: _selectedIndex == 1, onTap: () => setState(() => _selectedIndex = 1)),
+              _NavItem(index: 2, icon: Icons.navigation_rounded, label: l.active, selected: _selectedIndex == 2, onTap: () => setState(() => _selectedIndex = 2)),
+              _NavItem(index: 3, icon: Icons.account_balance_wallet_rounded, label: l.earnings, selected: _selectedIndex == 3, onTap: () => setState(() => _selectedIndex = 3)),
+              _NavItem(index: 4, icon: Icons.person_rounded, label: l.profile, selected: _selectedIndex == 4, onTap: () => setState(() => _selectedIndex = 4)),
             ],
           ),
         ),
@@ -155,7 +200,7 @@ class _DashboardTabState extends ConsumerState<_DashboardTab> {
     // Verify the OS-level location switch is on. If not, GPS will return
     // a useless fallback (or nothing) — surface that to the user.
     if (!await Geolocator.isLocationServiceEnabled()) {
-      if (mounted) setState(() => _locationError = 'Location is off. Turn on Location in your phone settings.');
+      if (mounted) setState(() => _locationError = AppLocalizations.of(context)!.locationOff);
       return;
     }
 
@@ -165,7 +210,7 @@ class _DashboardTabState extends ConsumerState<_DashboardTab> {
     }
     if (permission == LocationPermission.denied ||
         permission == LocationPermission.deniedForever) {
-      if (mounted) setState(() => _locationError = 'Location permission denied. Grant it in app settings.');
+      if (mounted) setState(() => _locationError = AppLocalizations.of(context)!.locationDeniedSettings);
       return;
     }
 
@@ -256,6 +301,7 @@ class _DashboardTabState extends ConsumerState<_DashboardTab> {
 
   @override
   Widget build(BuildContext context) {
+    final l = AppLocalizations.of(context)!;
     final activeAsync = ref.watch(activeDeliveryProvider);
     final availableAsync = ref.watch(availableOrdersProvider);
 
@@ -268,7 +314,7 @@ class _DashboardTabState extends ConsumerState<_DashboardTab> {
       body: CustomScrollView(
         slivers: [
           SliverAppBar(
-            expandedHeight: 180,
+            expandedHeight: 200,
             pinned: true,
             backgroundColor: Colors.transparent,
             flexibleSpace: FlexibleSpaceBar(
@@ -291,7 +337,7 @@ class _DashboardTabState extends ConsumerState<_DashboardTab> {
                           children: [
                             Expanded(
                               child: Text(
-                                'Driver Dashboard',
+                                l.driverDashboard,
                                 style: Theme.of(context).textTheme.titleLarge?.copyWith(
                                       color: Colors.white,
                                       fontWeight: FontWeight.w700,
@@ -314,8 +360,8 @@ class _DashboardTabState extends ConsumerState<_DashboardTab> {
                         const SizedBox(height: 4),
                         Text(
                           hasActive
-                              ? 'You have an active delivery'
-                              : (isOnline ? 'Ready for orders' : "You're offline — flip the switch to start"),
+                              ? l.youHaveActiveDelivery
+                              : (isOnline ? l.readyForOrders : l.youreOfflineFlip),
                           style: const TextStyle(color: Colors.white70, fontSize: 14),
                         ),
                         if (_cityName != null) ...[
@@ -337,11 +383,11 @@ class _DashboardTabState extends ConsumerState<_DashboardTab> {
                         const Spacer(),
                         Row(
                           children: [
-                            _HeaderStat(label: 'Available', value: '$availableCount'),
+                            _HeaderStat(label: l.available, value: '$availableCount'),
                             const SizedBox(width: 1),
                             Container(width: 1, height: 32, color: Colors.white24),
                             const SizedBox(width: 1),
-                            _HeaderStat(label: 'Active', value: hasActive ? '1' : '0'),
+                            _HeaderStat(label: l.active, value: hasActive ? '1' : '0'),
                           ],
                         ),
                       ],
@@ -359,7 +405,7 @@ class _DashboardTabState extends ConsumerState<_DashboardTab> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   if (hasActive) ...[
-                    Text('Active Delivery', style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
+                    Text(l.activeDelivery, style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
                     const SizedBox(height: 12),
                     _ActiveDeliveryCard(order: activeAsync.value!),
                     const SizedBox(height: 24),
@@ -368,13 +414,13 @@ class _DashboardTabState extends ConsumerState<_DashboardTab> {
                   Row(
                     children: [
                       Expanded(
-                        child: Text('Your Location', style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
+                        child: Text(l.yourLocation, style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
                       ),
                       if (hasLocation)
                         TextButton.icon(
                           onPressed: _openFullscreenMap,
                           icon: const Icon(Icons.open_in_full, size: 16),
-                          label: const Text('Expand'),
+                          label: Text(l.expand),
                           style: TextButton.styleFrom(
                             foregroundColor: AppColors.primary,
                             padding: const EdgeInsets.symmetric(horizontal: 8),
@@ -419,7 +465,7 @@ class _DashboardTabState extends ConsumerState<_DashboardTab> {
                                         latitude: _myLat!,
                                         longitude: _myLng!,
                                         kind: AppMapMarkerKind.driver,
-                                        title: 'You',
+                                        title: l.you,
                                       ),
                                     },
                                   ),
@@ -555,7 +601,7 @@ class _ActiveDeliveryCard extends StatelessWidget {
               color: AppColors.success.withOpacity(0.12),
               borderRadius: BorderRadius.circular(8),
             ),
-            child: const Text('On the Way', style: TextStyle(color: AppColors.success, fontSize: 12, fontWeight: FontWeight.bold)),
+            child: Text(AppLocalizations.of(context)!.onTheWay, style: const TextStyle(color: AppColors.success, fontSize: 12, fontWeight: FontWeight.bold)),
           ),
         ],
       ),
@@ -569,6 +615,7 @@ class _NoActiveDelivery extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l = AppLocalizations.of(context)!;
     return Scaffold(
       body: Center(
         child: Column(
@@ -576,9 +623,9 @@ class _NoActiveDelivery extends StatelessWidget {
           children: [
             const Icon(Icons.delivery_dining, size: 80, color: AppColors.textLight),
             const SizedBox(height: 16),
-            const Text('No active delivery', style: TextStyle(fontSize: 18, color: AppColors.textSecondary)),
+            Text(l.noActiveDelivery, style: const TextStyle(fontSize: 18, color: AppColors.textSecondary)),
             const SizedBox(height: 8),
-            const Text('Accept an order to start delivering', style: TextStyle(color: AppColors.textLight)),
+            Text(l.acceptOrderToStart, style: const TextStyle(color: AppColors.textLight)),
             const SizedBox(height: 24),
             ElevatedButton(
               onPressed: onBrowse,
@@ -587,7 +634,7 @@ class _NoActiveDelivery extends StatelessWidget {
                 foregroundColor: Colors.white,
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
               ),
-              child: const Text('Browse Available Orders'),
+              child: Text(l.browseAvailableOrders),
             ),
           ],
         ),
@@ -682,7 +729,7 @@ class _FullscreenMapScreenState extends State<_FullscreenMapScreen> {
                   latitude: _lat,
                   longitude: _lng,
                   kind: AppMapMarkerKind.driver,
-                  title: 'You',
+                  title: AppLocalizations.of(context)!.you,
                 ),
               },
             ),

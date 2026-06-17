@@ -1,7 +1,12 @@
+import 'dart:convert';
 import 'package:flutter/foundation.dart';
+import 'package:http/http.dart' as http;
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../../../core/config/openrouter_config.dart';
 import 'models/food_item.dart';
+import 'models/grocery_category.dart';
 import 'models/grocery_item.dart';
+import 'models/item_variant.dart';
 
 class MenuRepository {
   final _supabase = Supabase.instance.client;
@@ -37,6 +42,10 @@ class MenuRepository {
         'preparation_time': item.preparationTime,
         'is_vegetarian': item.isVegetarian,
         'is_spicy': item.isSpicy,
+        'is_happy_hour': item.isHappyHour,
+        'happy_hour_price': item.happyHourPrice,
+        'happy_hour_start': item.happyHourStart,
+        'happy_hour_end': item.happyHourEnd,
       }).select().single();
       return response['id'] as String?;
     } catch (e) {
@@ -57,6 +66,10 @@ class MenuRepository {
         'preparation_time': item.preparationTime,
         'is_vegetarian': item.isVegetarian,
         'is_spicy': item.isSpicy,
+        'is_happy_hour': item.isHappyHour,
+        'happy_hour_price': item.happyHourPrice,
+        'happy_hour_start': item.happyHourStart,
+        'happy_hour_end': item.happyHourEnd,
       }).eq('id', item.id);
       return true;
     } catch (e) {
@@ -65,15 +78,16 @@ class MenuRepository {
     }
   }
 
-  Future<bool> toggleFoodItemAvailability(String itemId, bool isAvailable) async {
+  Future<bool> updateItemAvailability(String itemId, bool isAvailable, {required bool isGrocery}) async {
     try {
+      final table = isGrocery ? 'grocery_items' : 'food_items';
       await _supabase
-          .from('food_items')
+          .from(table)
           .update({'is_available': isAvailable})
           .eq('id', itemId);
       return true;
     } catch (e) {
-      debugPrint('Error toggling food item: $e');
+      debugPrint('Error toggling item availability: $e');
       return false;
     }
   }
@@ -145,19 +159,6 @@ class MenuRepository {
     }
   }
 
-  Future<bool> toggleGroceryItemAvailability(String itemId, bool isAvailable) async {
-    try {
-      await _supabase
-          .from('grocery_items')
-          .update({'is_available': isAvailable})
-          .eq('id', itemId);
-      return true;
-    } catch (e) {
-      debugPrint('Error toggling grocery item: $e');
-      return false;
-    }
-  }
-
   Future<bool> deleteGroceryItem(String itemId) async {
     try {
       await _supabase.from('grocery_items').delete().eq('id', itemId);
@@ -210,6 +211,254 @@ class MenuRepository {
     }
   }
 
+  // ─── Item Variants (cross-app) ─────────────────────────────────────────────
+
+  /// Loads variants for one food/grocery item, ordered by sort_order.
+  /// Returns [] when the item has none — caller falls back to base price.
+  Future<List<ItemVariant>> getVariants({
+    required String itemId,
+    required bool isGrocery,
+  }) async {
+    try {
+      final table = isGrocery ? 'grocery_item_variants' : 'food_item_variants';
+      final fk = isGrocery ? 'grocery_item_id' : 'food_item_id';
+      final response = await _supabase
+          .from(table)
+          .select()
+          .eq(fk, itemId)
+          .order('sort_order');
+      return (response as List).map((r) => ItemVariant.fromDb(r)).toList();
+    } catch (e) {
+      debugPrint('Error fetching variants: $e');
+      return [];
+    }
+  }
+
+  /// Replaces the full variant set for an item — simplest UX: partner edits
+  /// the list as a whole, we delete-all + insert-all in one call. Avoids the
+  /// complexity of diffing deletes/updates/inserts client-side.
+  Future<bool> replaceVariants({
+    required String itemId,
+    required bool isGrocery,
+    required List<ItemVariant> variants,
+  }) async {
+    try {
+      final table = isGrocery ? 'grocery_item_variants' : 'food_item_variants';
+      final fk = isGrocery ? 'grocery_item_id' : 'food_item_id';
+      await _supabase.from(table).delete().eq(fk, itemId);
+      if (variants.isEmpty) return true;
+      final rows = <Map<String, dynamic>>[];
+      for (var i = 0; i < variants.length; i++) {
+        final v = variants[i].copyWith(sortOrder: i);
+        rows.add(v.toInsert(fk, itemId));
+      }
+      await _supabase.from(table).insert(rows);
+      return true;
+    } catch (e) {
+      debugPrint('Error replacing variants: $e');
+      return false;
+    }
+  }
+
+  // ─── AI Menu Scanner ───────────────────────────────────────────────────────
+
+  /// Scans a photo of a physical menu / price list and inserts the detected
+  /// items straight into the partner's catalog.
+  ///
+  /// This calls the OpenRouter vision API directly from the app (no Edge
+  /// Function hop) for speed. The model is asked for strict JSON; we parse it,
+  /// then fan out the DB inserts in parallel. Returns the number of items
+  /// actually inserted.
+  Future<int> scanMenu({
+    required String base64Image,
+    required String partnerId,
+    required String partnerType,
+  }) async {
+    if (!OpenRouterConfig.isConfigured) {
+      throw Exception('OpenRouter API key is missing — check your .env file.');
+    }
+
+    final isGrocery = partnerType != 'restaurant';
+    final items = await _extractItemsFromImage(
+      base64Image: base64Image,
+      isGrocery: isGrocery,
+    );
+
+    if (items.isEmpty) {
+      throw Exception('No menu items could be detected in that photo.');
+    }
+
+    // Fan out the inserts in parallel — much faster than awaiting each one.
+    final results = await Future.wait(
+      items.map((raw) => _insertScannedItem(
+            raw: raw,
+            partnerId: partnerId,
+            isGrocery: isGrocery,
+          )),
+    );
+
+    final count = results.where((ok) => ok).length;
+    if (count == 0) {
+      throw Exception('Detected ${items.length} items but none could be saved.');
+    }
+    return count;
+  }
+
+  /// Sends the image to OpenRouter and returns the raw parsed item maps.
+  Future<List<Map<String, dynamic>>> _extractItemsFromImage({
+    required String base64Image,
+    required bool isGrocery,
+  }) async {
+    final categoryHint = isGrocery
+        ? 'category must be one of: ${GroceryCategory.values.map((c) => c.name).join(', ')}'
+        : 'category is a short food category like "Starters", "Main", "Drinks", "Desserts"';
+
+    final prompt =
+        'You are reading a photo of a ${isGrocery ? 'grocery price list' : 'restaurant menu'}. '
+        'Extract every item you can see. Respond with ONLY a JSON array, no markdown, '
+        'no commentary. Each element must be an object with these keys: '
+        '"name" (string), "description" (string, "" if none), '
+        '"price" (number, 0 if unreadable), "category" (string). '
+        'For category, $categoryHint. If a price has currency symbols or text, '
+        'return just the number.';
+
+    final body = jsonEncode({
+      'model': OpenRouterConfig.model,
+      // Nudges compatible models to emit valid JSON.
+      'response_format': {'type': 'json_object'},
+      'messages': [
+        {
+          'role': 'user',
+          'content': [
+            {'type': 'text', 'text': prompt},
+            {
+              'type': 'image_url',
+              'image_url': {'url': 'data:image/jpeg;base64,$base64Image'},
+            },
+          ],
+        },
+      ],
+    });
+
+    final http.Response response;
+    try {
+      response = await http
+          .post(
+            Uri.parse(OpenRouterConfig.endpoint),
+            headers: {
+              'Authorization': 'Bearer ${OpenRouterConfig.apiKey}',
+              'Content-Type': 'application/json',
+              // Optional but recommended by OpenRouter for attribution.
+              'HTTP-Referer': 'https://partner.cmandili.com',
+              'X-Title': 'Cmandili Partner',
+            },
+            body: body,
+          )
+          .timeout(const Duration(seconds: 45));
+    } catch (e) {
+      debugPrint('OpenRouter request failed: $e');
+      throw Exception('Could not reach the AI service. Check your connection.');
+    }
+
+    if (response.statusCode != 200) {
+      debugPrint('OpenRouter error ${response.statusCode}: ${response.body}');
+      throw Exception('AI service error (${response.statusCode}).');
+    }
+
+    final decoded = jsonDecode(response.body) as Map<String, dynamic>;
+    final content = decoded['choices']?[0]?['message']?['content'] as String?;
+    if (content == null || content.trim().isEmpty) {
+      throw Exception('The AI returned an empty response.');
+    }
+
+    return _parseItemsJson(content);
+  }
+
+  /// The model may wrap the JSON in markdown fences or return an object that
+  /// holds the array under a key — this digs the list out either way.
+  List<Map<String, dynamic>> _parseItemsJson(String content) {
+    var text = content.trim();
+    if (text.startsWith('```')) {
+      text = text.replaceAll(RegExp(r'^```(json)?'), '').replaceAll('```', '').trim();
+    }
+
+    dynamic parsed;
+    try {
+      parsed = jsonDecode(text);
+    } catch (_) {
+      // Last resort: grab the first [...] block out of the text.
+      final match = RegExp(r'\[[\s\S]*\]').firstMatch(text);
+      if (match == null) {
+        throw Exception('The AI response was not valid JSON.');
+      }
+      parsed = jsonDecode(match.group(0)!);
+    }
+
+    List<dynamic> list;
+    if (parsed is List) {
+      list = parsed;
+    } else if (parsed is Map) {
+      // e.g. {"items": [...]} — take the first List value we find.
+      final listValue = parsed.values.firstWhere(
+        (v) => v is List,
+        orElse: () => null,
+      );
+      list = listValue is List ? listValue : const [];
+    } else {
+      list = const [];
+    }
+
+    return list.whereType<Map>().map((m) => m.cast<String, dynamic>()).toList();
+  }
+
+  /// Maps one raw model item to a FoodItem/GroceryItem and inserts it.
+  Future<bool> _insertScannedItem({
+    required Map<String, dynamic> raw,
+    required String partnerId,
+    required bool isGrocery,
+  }) async {
+    final name = (raw['name'] as String?)?.trim() ?? '';
+    if (name.isEmpty) return false;
+
+    final description = (raw['description'] as String?)?.trim() ?? '';
+    final price = (raw['price'] as num?)?.toDouble() ??
+        double.tryParse('${raw['price']}'.replaceAll(RegExp(r'[^0-9.]'), '')) ??
+        0.0;
+    final categoryStr = (raw['category'] as String?)?.trim() ?? '';
+
+    if (isGrocery) {
+      final category = GroceryCategory.values.firstWhere(
+        (c) => c.name.toLowerCase() == categoryStr.toLowerCase(),
+        orElse: () => GroceryCategory.other,
+      );
+      final id = await addGroceryItem(
+        GroceryItem(
+          id: '',
+          supermarketId: partnerId,
+          name: name,
+          description: description,
+          price: price,
+          category: category,
+        ),
+        partnerId,
+      );
+      return id != null;
+    } else {
+      final id = await addFoodItem(
+        FoodItem(
+          id: '',
+          restaurantId: partnerId,
+          name: name,
+          description: description,
+          price: price,
+          category: categoryStr.isEmpty ? 'Other' : categoryStr,
+        ),
+        partnerId,
+      );
+      return id != null;
+    }
+  }
+
   // ─── Storage ─────────────────────────────────────────────────────────────────
   
   Future<String?> uploadItemImage(String path, dynamic fileBytesOrFile) async {
@@ -248,6 +497,10 @@ class MenuRepository {
       'discountPrice': db['discount_price'],
       'discountEndTime': db['discount_end_time'],
       'discountQuantity': db['discount_quantity'],
+      'isHappyHour': db['is_happy_hour'] ?? false,
+      'happyHourPrice': db['happy_hour_price'],
+      'happyHourStart': db['happy_hour_start'],
+      'happyHourEnd': db['happy_hour_end'],
     };
   }
 

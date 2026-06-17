@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:cmandili_partner/l10n/app_localizations.dart';
 import '../../../core/theme/app_colors.dart';
 
 class PayoutScreen extends ConsumerStatefulWidget {
@@ -64,7 +65,7 @@ class _PayoutScreenState extends ConsumerState<PayoutScreen> {
       }, onConflict: 'user_id');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Payout info saved'), backgroundColor: Colors.green),
+          SnackBar(content: Text(AppLocalizations.of(context)!.payoutInfoSaved), backgroundColor: Colors.green),
         );
         Navigator.pop(context);
       }
@@ -79,9 +80,10 @@ class _PayoutScreenState extends ConsumerState<PayoutScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final l = AppLocalizations.of(context)!;
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Payout Info', style: TextStyle(fontWeight: FontWeight.bold)),
+        title: Text(l.payoutInfo, style: const TextStyle(fontWeight: FontWeight.bold)),
         centerTitle: true,
         backgroundColor: AppColors.background,
         elevation: 0,
@@ -109,7 +111,7 @@ class _PayoutScreenState extends ConsumerState<PayoutScreen> {
                           const SizedBox(width: 10),
                           Expanded(
                             child: Text(
-                              'Payouts are processed every 7 days to your registered bank account.',
+                              l.payoutInfoMessage,
                               style: TextStyle(color: AppColors.primary.withValues(alpha: 0.85), fontSize: 13),
                             ),
                           ),
@@ -150,7 +152,7 @@ class _PayoutScreenState extends ConsumerState<PayoutScreen> {
                         ),
                         child: _saving
                             ? const SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                            : const Text('Save Payout Info', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                            : Text(l.savePayoutInfo, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
                       ),
                     ),
                   ],

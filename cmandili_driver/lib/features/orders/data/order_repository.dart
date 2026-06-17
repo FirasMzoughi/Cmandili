@@ -39,18 +39,38 @@ class OrderRepository {
     }
   }
 
-  // Stream order updates
-  Stream<Order> streamOrder(String orderId) {
-    return _supabase
+  // Stream order updates. We subscribe to the `orders` realtime channel for
+  // change events, but pull the resolved customer fields from
+  // orders_with_customer on each update so the driver always has a phone to
+  // call.
+  Stream<Order> streamOrder(String orderId) async* {
+    Map<String, dynamic>? customer;
+    Future<void> refreshCustomer() async {
+      try {
+        final row = await _supabase
+            .from('orders_with_customer')
+            .select('customer_name, customer_phone')
+            .eq('id', orderId)
+            .maybeSingle();
+        customer = row;
+      } catch (_) {
+        customer = null;
+      }
+    }
+
+    await refreshCustomer();
+    await for (final event in _supabase
         .from('orders')
         .stream(primaryKey: ['id'])
-        .eq('id', orderId)
-        .map((event) {
-          if (event.isEmpty) {
-            throw Exception('Order not found');
-          }
-          return Order.fromJson(_mapOrderFromDb(event.first));
-        });
+        .eq('id', orderId)) {
+      if (event.isEmpty) {
+        throw Exception('Order not found');
+      }
+      final mapped = _mapOrderFromDb(event.first);
+      mapped['customerName'] = customer?['customer_name'];
+      mapped['customerPhone'] = customer?['customer_phone'];
+      yield Order.fromJson(mapped);
+    }
   }
 
   Map<String, dynamic> _mapOrderFromDb(Map<String, dynamic> dbJson) {
@@ -80,6 +100,8 @@ class OrderRepository {
       'recipientPhone': dbJson['recipient_phone'],
       'packageDescription': dbJson['package_description'],
       'isRecipientAccepted': false,
+      'customerName': dbJson['customer_name'],
+      'customerPhone': dbJson['customer_phone'],
     };
   }
 }

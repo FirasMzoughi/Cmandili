@@ -30,6 +30,21 @@ android {
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+
+        // Ship only 64-bit ARM. Real Android phones since 2019 are arm64-v8a;
+        // x86_64 is emulator-only and armeabi-v7a is legacy 32-bit. Dropping
+        // both removes ~2/3 of the native-lib payload (Mapbox, Firebase,
+        // flutter_sound, etc. each ship one .so per ABI), so the universal
+        // APK from a plain `flutter build apk` shrinks from ~150 MB to ~50 MB.
+        ndk {
+            abiFilters += listOf("arm64-v8a")
+        }
+
+        // Drop unused locale resources from bundled libraries (Firebase, Play
+        // Services, Mapbox). We only ship en/ar/fr; everything else is dead
+        // weight. resourceConfigurations is the AGP <8.5 spelling of
+        // androidResources.localeFilters.
+        resourceConfigurations += listOf("en", "ar", "fr")
     }
 
     buildTypes {
@@ -37,8 +52,15 @@ android {
             // TODO: Add your own signing config for the release build.
             // Signing with the debug keys for now, so `flutter run --release` works.
             signingConfig = signingConfigs.getByName("debug")
+            // R8 minification is OFF: with Mapbox + Firebase + supabase_flutter
+            // it requires hand-tuned -keep rules and crashed the Gradle daemon
+            // on a 16 GB machine. The size win was already taken by
+            // arm64-v8a-only `abiFilters` above (~2/3 APK reduction).
+            isMinifyEnabled = false
+            isShrinkResources = false
         }
     }
+
 }
 
 flutter {
@@ -47,4 +69,8 @@ flutter {
 
 dependencies {
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
+    // Explicit Firebase Messaging dep so CmandiliMessagingService.kt can import
+    // RemoteMessage and FirebaseMessagingService directly without relying on
+    // transitive exposure from the Flutter plugin's AAR.
+    implementation("com.google.firebase:firebase-messaging:23.4.1")
 }

@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../orders/providers/driver_online_provider.dart';
+import 'package:cmandili_driver/l10n/app_localizations.dart';
 
 class DriverPayoutScreen extends ConsumerStatefulWidget {
   const DriverPayoutScreen({super.key});
@@ -65,7 +66,7 @@ class _DriverPayoutScreenState extends ConsumerState<DriverPayoutScreen> {
       }, onConflict: 'user_id');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Payout info saved'), backgroundColor: Colors.green),
+          SnackBar(content: Text(AppLocalizations.of(context)!.payoutInfoSaved), backgroundColor: Colors.green),
         );
         Navigator.pop(context);
       }
@@ -81,10 +82,11 @@ class _DriverPayoutScreenState extends ConsumerState<DriverPayoutScreen> {
   @override
   Widget build(BuildContext context) {
     final isOnline = ref.watch(driverOnlineProvider);
+    final l = AppLocalizations.of(context)!;
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Earnings & Status', style: TextStyle(fontWeight: FontWeight.bold)),
+        title: Text(l.earningsAndStatus, style: const TextStyle(fontWeight: FontWeight.bold)),
         centerTitle: true,
         backgroundColor: AppColors.background,
         elevation: 0,
@@ -123,7 +125,7 @@ class _DriverPayoutScreenState extends ConsumerState<DriverPayoutScreen> {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(
-                                isOnline ? 'You are Online' : 'You are Offline',
+                                isOnline ? l.youAreOnline : l.youAreOffline,
                                 style: TextStyle(
                                   fontWeight: FontWeight.bold,
                                   fontSize: 16,
@@ -131,7 +133,7 @@ class _DriverPayoutScreenState extends ConsumerState<DriverPayoutScreen> {
                                 ),
                               ),
                               Text(
-                                isOnline ? 'You can receive new orders' : 'Turn on to receive orders',
+                                isOnline ? l.canReceiveOrders : l.turnOnToReceive,
                                 style: const TextStyle(fontSize: 13, color: AppColors.textSecondary),
                               ),
                             ],
@@ -147,26 +149,26 @@ class _DriverPayoutScreenState extends ConsumerState<DriverPayoutScreen> {
                   ),
                   const SizedBox(height: 28),
 
-                  const Text('Bank Payout Info',
-                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 17, color: AppColors.textPrimary)),
+                  Text(l.bankPayoutInfo,
+                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 17, color: AppColors.textPrimary)),
                   const SizedBox(height: 6),
-                  const Text('Payouts are sent weekly to your bank account.',
-                      style: TextStyle(fontSize: 13, color: AppColors.textSecondary)),
+                  Text(l.payoutsWeekly,
+                      style: const TextStyle(fontSize: 13, color: AppColors.textSecondary)),
                   const SizedBox(height: 20),
 
                   Form(
                     key: _formKey,
                     child: Column(
                       children: [
-                        _field(controller: _accountHolderCtrl, label: 'Account Holder Name',
-                            icon: Icons.person_outline, validator: (v) => v!.isEmpty ? 'Required' : null),
+                        _field(controller: _accountHolderCtrl, label: l.accountHolderName,
+                            icon: Icons.person_outline, validator: (v) => v!.isEmpty ? l.required : null),
                         const SizedBox(height: 16),
-                        _field(controller: _bankNameCtrl, label: 'Bank Name',
-                            icon: Icons.account_balance_outlined, validator: (v) => v!.isEmpty ? 'Required' : null),
+                        _field(controller: _bankNameCtrl, label: l.bankName,
+                            icon: Icons.account_balance_outlined, validator: (v) => v!.isEmpty ? l.required : null),
                         const SizedBox(height: 16),
-                        _field(controller: _ibanCtrl, label: 'IBAN / RIB',
+                        _field(controller: _ibanCtrl, label: l.ibanRib,
                             icon: Icons.credit_card_outlined,
-                            validator: (v) => v!.length < 10 ? 'Enter a valid IBAN/RIB' : null),
+                            validator: (v) => v!.length < 10 ? l.enterValidIban : null),
                         const SizedBox(height: 32),
                         SizedBox(
                           width: double.infinity,
@@ -180,7 +182,7 @@ class _DriverPayoutScreenState extends ConsumerState<DriverPayoutScreen> {
                             ),
                             child: _saving
                                 ? const SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                                : const Text('Save Payout Info', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                                : Text(l.savePayoutInfo, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
                           ),
                         ),
                       ],

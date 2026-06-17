@@ -147,14 +147,7 @@ void _onStart(ServiceInstance service) async {
     return;
   }
 
-  StreamSubscription<Position>? posStream;
-  posStream = Geolocator.getPositionStream(
-    locationSettings: const LocationSettings(
-      accuracy: LocationAccuracy.high,
-      distanceFilter: 10,
-    ),
-  ).listen((pos) async {
-    // Update notification content
+  Future<void> pushLocation(Position pos) async {
     if (service is AndroidServiceInstance) {
       service.setForegroundNotificationInfo(
         title: 'Cmandili Driver',
@@ -162,7 +155,6 @@ void _onStart(ServiceInstance service) async {
             'Location tracking active • ${pos.latitude.toStringAsFixed(4)}, ${pos.longitude.toStringAsFixed(4)}',
       );
     }
-
     try {
       await supabase.from('drivers').update({
         'current_lat': pos.latitude,
@@ -172,7 +164,6 @@ void _onStart(ServiceInstance service) async {
     } catch (e) {
       debugPrint('[BG] driver update failed: $e');
     }
-
     if (deliveryId != null) {
       try {
         await supabase.from('deliveries').update({
@@ -184,7 +175,25 @@ void _onStart(ServiceInstance service) async {
         debugPrint('[BG] delivery update failed: $e');
       }
     }
+  }
+
+  StreamSubscription<Position>? posStream;
+  posStream = Geolocator.getPositionStream(
+    locationSettings: const LocationSettings(
+      accuracy: LocationAccuracy.high,
+      distanceFilter: 30, // Mise à jour de la position uniquement après 30 mètres de déplacement
+    ),
+  ).listen((pos) async {
+    await pushLocation(pos);
   });
+
+  // Fetch initial location immediately so we have at least one record
+  try {
+    final initialPos = await Geolocator.getCurrentPosition(
+      desiredAccuracy: LocationAccuracy.high,
+    );
+    await pushLocation(initialPos);
+  } catch (_) {}
 
   // Clean up when service stops
   service.on('stop').listen((_) {

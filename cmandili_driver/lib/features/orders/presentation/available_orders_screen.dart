@@ -1,12 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/utils/currency_formatter.dart';
 import '../../../core/services/background_location_service.dart';
+import '../../../core/push/push_service.dart';
 import '../data/models/order.dart';
 import '../providers/driver_orders_provider.dart';
 import 'order_tracking_screen.dart';
+import 'package:cmandili_driver/l10n/app_localizations.dart';
 
 class AvailableOrdersScreen extends ConsumerWidget {
   const AvailableOrdersScreen({super.key});
@@ -14,10 +17,11 @@ class AvailableOrdersScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final ordersAsync = ref.watch(availableOrdersProvider);
+    final l = AppLocalizations.of(context)!;
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Available Orders', style: TextStyle(fontWeight: FontWeight.bold)),
+        title: Text(l.availableOrders, style: const TextStyle(fontWeight: FontWeight.bold)),
         centerTitle: true,
         backgroundColor: AppColors.background,
         elevation: 0,
@@ -28,20 +32,20 @@ class AvailableOrdersScreen extends ConsumerWidget {
         error: (e, _) => Center(child: Text('Error: $e')),
         data: (orders) {
           if (orders.isEmpty) {
-            return const Center(
+            return Center(
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Icon(Icons.delivery_dining, size: 80, color: AppColors.textLight),
-                  SizedBox(height: 16),
+                  const Icon(Icons.delivery_dining, size: 80, color: AppColors.textLight),
+                  const SizedBox(height: 16),
                   Text(
-                    'No orders available right now',
-                    style: TextStyle(fontSize: 18, color: AppColors.textSecondary),
+                    l.noOrdersAvailable,
+                    style: const TextStyle(fontSize: 18, color: AppColors.textSecondary),
                   ),
-                  SizedBox(height: 8),
+                  const SizedBox(height: 8),
                   Text(
-                    'Pull down to refresh',
-                    style: TextStyle(color: AppColors.textLight),
+                    l.pullDownToRefresh,
+                    style: const TextStyle(color: AppColors.textLight),
                   ),
                 ],
               ),
@@ -69,12 +73,32 @@ class _OrderCard extends ConsumerWidget {
   Future<void> _acceptOrder(BuildContext context, WidgetRef ref) async {
     final supabase = Supabase.instance.client;
 
+    // Stop the alarm immediately so the driver isn't still hearing it while
+    // the accept flow runs. cancelDeliveryAlarm() is a no-op if no alarm is
+    // playing (e.g. the driver opened via a tapped notification).
+    await PushService.instance.cancelDeliveryAlarm();
+
     try {
       // Get or create driver record
       final driverId = await ref.read(currentDriverIdProvider.future);
       if (driverId == null) throw 'Driver profile not found';
 
-      // Create delivery row
+      // Atomically claim the order: only succeeds if driver_id is still null,
+      // so two drivers tapping Accept at the same time can't both win. The
+      // second one gets an empty result and we abort before creating a
+      // deliveries row or starting GPS tracking.
+      final claimed = await supabase
+          .from('orders')
+          .update({'driver_id': driverId})
+          .eq('id', order.id)
+          .isFilter('driver_id', null)
+          .select('id');
+
+      if ((claimed as List).isEmpty) {
+        throw 'This order was just taken by another driver.';
+      }
+
+      // Create delivery row now that we own the order.
       final deliveryRow = await supabase.from('deliveries').insert({
         'order_id': order.id,
         'driver_id': driverId,
@@ -82,11 +106,6 @@ class _OrderCard extends ConsumerWidget {
         'current_lat': 0,
         'current_lng': 0,
       }).select('id').single();
-
-      // Assign driver to order without overriding the restaurant-side status
-      await supabase.from('orders').update({
-        'driver_id': driverId,
-      }).eq('id', order.id);
 
       // Start background GPS tracking so location updates persist even when
       // the driver navigates away from the tracking screen.
@@ -114,9 +133,27 @@ class _OrderCard extends ConsumerWidget {
     }
   }
 
+  String? get _customerName {
+    if ((order.customerName ?? '').isNotEmpty) return order.customerName;
+    if ((order.deliveryAddress.recipientName ?? '').isNotEmpty) {
+      return order.deliveryAddress.recipientName;
+    }
+    return null;
+  }
+
+  String? get _customerPhone {
+    if ((order.customerPhone ?? '').isNotEmpty) return order.customerPhone;
+    if ((order.deliveryAddress.phone ?? '').isNotEmpty) {
+      return order.deliveryAddress.phone;
+    }
+    return null;
+  }
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final address = order.deliveryAddress;
+    final cname = _customerName;
+    final cphone = _customerPhone;
 
     return Container(
       margin: const EdgeInsets.only(bottom: 16),
@@ -170,6 +207,60 @@ class _OrderCard extends ConsumerWidget {
               ],
             ),
             const SizedBox(height: 12),
+
+            // Customer (name + tap-to-call)
+            if (cname != null || cphone != null) ...[
+              Row(
+                children: [
+                  const Icon(Icons.person_outline, size: 18, color: AppColors.textLight),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      cname ?? AppLocalizations.of(context)!.customer,
+                      style: const TextStyle(
+                        color: AppColors.textPrimary,
+                        fontWeight: FontWeight.w600,
+                        fontSize: 14,
+                      ),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  if (cphone != null)
+                    InkWell(
+                      onTap: () async {
+                        final uri = Uri(scheme: 'tel', path: cphone);
+                        if (await canLaunchUrl(uri)) {
+                          await launchUrl(uri);
+                        }
+                      },
+                      borderRadius: BorderRadius.circular(8),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: AppColors.success.withValues(alpha: 0.12),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(Icons.phone, size: 14, color: AppColors.success),
+                            const SizedBox(width: 4),
+                            Text(
+                              cphone,
+                              style: const TextStyle(
+                                color: AppColors.success,
+                                fontWeight: FontWeight.w600,
+                                fontSize: 13,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 8),
+            ],
 
             // Delivery address
             Row(
@@ -232,9 +323,9 @@ class _OrderCard extends ConsumerWidget {
                     borderRadius: BorderRadius.circular(12),
                   ),
                 ),
-                child: const Text(
-                  'Accept Order',
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                child: Text(
+                  AppLocalizations.of(context)!.acceptOrder,
+                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                 ),
               ),
             ),

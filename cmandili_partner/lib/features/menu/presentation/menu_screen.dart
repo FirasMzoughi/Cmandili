@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:cmandili_partner/l10n/app_localizations.dart';
 import '../../../core/theme/app_colors.dart';
 import '../providers/menu_provider.dart';
 import '../../auth/providers/auth_provider.dart';
@@ -8,6 +9,8 @@ import '../data/models/food_item.dart';
 import '../data/models/grocery_item.dart';
 import 'add_edit_item_screen.dart';
 import 'happy_hour_setup_screen.dart';
+import '../providers/menu_scanner_provider.dart';
+import 'package:image_picker/image_picker.dart';
 
 class MenuScreen extends ConsumerStatefulWidget {
   const MenuScreen({super.key});
@@ -32,15 +35,42 @@ class _MenuScreenState extends ConsumerState<MenuScreen> {
     final itemsAsync = ref.watch(filteredMenuItemsProvider);
     final selectedCategory = ref.watch(selectedCategoryProvider);
     final isRestaurant = profileAsync.value?.partnerType == 'restaurant';
+    final l = AppLocalizations.of(context)!;
+
+    ref.listen<MenuScannerState>(menuScannerProvider, (previous, next) {
+      if (next.error != null && next.error != previous?.error) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('${l.scanMenuError}: ${next.error}'), backgroundColor: AppColors.error),
+        );
+      } else if (next.itemsAddedCount != null && next.itemsAddedCount != previous?.itemsAddedCount) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('${l.scanMenuSuccess} (${next.itemsAddedCount} items)'), backgroundColor: Colors.green),
+        );
+      }
+    });
+
+    final scannerState = ref.watch(menuScannerProvider);
 
     return Scaffold(
-      body: CustomScrollView(
+      body: Stack(
+        children: [
+          CustomScrollView(
         slivers: [
           // Header
           SliverAppBar(
             expandedHeight: 130,
             pinned: true,
             backgroundColor: Colors.transparent,
+            actions: [
+              IconButton(
+                icon: const Icon(Icons.document_scanner_rounded, color: Colors.white),
+                tooltip: l.scanMenu,
+                onPressed: scannerState.isLoading
+                    ? null
+                    : () => _showImageSourceBottomSheet(context, ref),
+              ),
+              const SizedBox(width: 8),
+            ],
             flexibleSpace: FlexibleSpaceBar(
               background: Container(
                 decoration: const BoxDecoration(
@@ -58,7 +88,7 @@ class _MenuScreenState extends ConsumerState<MenuScreen> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          isRestaurant ? 'Menu' : 'Products',
+                          isRestaurant ? l.menu : l.products,
                           style: Theme.of(context)
                               .textTheme
                               .headlineSmall
@@ -70,8 +100,8 @@ class _MenuScreenState extends ConsumerState<MenuScreen> {
                         const SizedBox(height: 4),
                         Text(
                           isRestaurant
-                              ? 'Manage your dishes and set happy hour deals'
-                              : 'Manage your products and set happy hour deals',
+                              ? l.manageDishesHappyHour
+                              : l.manageProductsHappyHour,
                           style:
                               Theme.of(context).textTheme.bodySmall?.copyWith(
                                     color: Colors.white70,
@@ -93,7 +123,7 @@ class _MenuScreenState extends ConsumerState<MenuScreen> {
                 controller: _searchController,
                 onChanged: (v) => setState(() => _searchQuery = v.toLowerCase()),
                 decoration: InputDecoration(
-                  hintText: 'Search items…',
+                  hintText: l.searchItems,
                   prefixIcon: const Icon(Icons.search_rounded,
                       color: AppColors.textSecondary),
                   suffixIcon: _searchQuery.isNotEmpty
@@ -130,7 +160,7 @@ class _MenuScreenState extends ConsumerState<MenuScreen> {
                     scrollDirection: Axis.horizontal,
                     child: Row(
                       children: [
-                        _categoryChip(null, 'All', selectedCategory),
+                        _categoryChip(null, l.all, selectedCategory),
                         ...categories.map(
                             (c) => _categoryChip(c, c, selectedCategory)),
                       ],
@@ -171,8 +201,8 @@ class _MenuScreenState extends ConsumerState<MenuScreen> {
                         const SizedBox(height: 16),
                         Text(
                           _searchQuery.isNotEmpty
-                              ? 'No items match "$_searchQuery"'
-                              : 'No items yet',
+                              ? '${l.noItemsMatch} "$_searchQuery"'
+                              : l.noItemsYet,
                           style:
                               Theme.of(context).textTheme.titleMedium?.copyWith(
                                     color: AppColors.textSecondary,
@@ -180,12 +210,28 @@ class _MenuScreenState extends ConsumerState<MenuScreen> {
                         ),
                         const SizedBox(height: 8),
                         Text(
-                          'Tap + to add your first item',
+                          l.tapToAddFirst,
                           style:
                               Theme.of(context).textTheme.bodySmall?.copyWith(
                                     color: AppColors.textLight,
                                   ),
                         ),
+                        if (_searchQuery.isEmpty) ...[
+                          const SizedBox(height: 24),
+                          ElevatedButton.icon(
+                            onPressed: scannerState.isLoading
+                                ? null
+                                : () => _showImageSourceBottomSheet(context, ref),
+                            icon: const Icon(Icons.camera_alt_rounded),
+                            label: Text(l.scanMenuEmptyState),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: AppColors.secondary,
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                            ),
+                          ),
+                        ],
                       ],
                     ),
                   ),
@@ -215,7 +261,7 @@ class _MenuScreenState extends ConsumerState<MenuScreen> {
             error: (e, _) => SliverFillRemaining(
               child: Center(
                 child: Text(
-                  'Could not load items.\nCheck your connection.',
+                  l.couldNotLoadItems,
                   textAlign: TextAlign.center,
                   style: Theme.of(context)
                       .textTheme
@@ -227,14 +273,40 @@ class _MenuScreenState extends ConsumerState<MenuScreen> {
           ),
         ],
       ),
-      floatingActionButton: FloatingActionButton.extended(
+      if (scannerState.isLoading)
+        Container(
+          color: Colors.black54,
+          child: Center(
+            child: Container(
+              padding: const EdgeInsets.all(24),
+              decoration: BoxDecoration(
+                color: Theme.of(context).cardColor,
+                borderRadius: BorderRadius.circular(16),
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const CircularProgressIndicator(color: AppColors.primary),
+                  const SizedBox(height: 16),
+                  Text(
+                    l.scanMenuLoading,
+                    style: const TextStyle(fontWeight: FontWeight.w600),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ],
+    ),
+    floatingActionButton: FloatingActionButton.extended(
         onPressed: () => _goToAddEdit(context, ref,
             partnerType: profileAsync.value?.partnerType ?? 'restaurant'),
         backgroundColor: AppColors.primary,
         foregroundColor: Colors.white,
         icon: const Icon(Icons.add_rounded),
         label: Text(
-          'Add ${profileAsync.value?.partnerType == "restaurant" ? "Dish" : "Product"}',
+          'Add ${profileAsync.value?.partnerType == "restaurant" ? l.addDish : l.addProduct}',
           style: const TextStyle(fontWeight: FontWeight.w700),
         ),
       ),
@@ -300,9 +372,45 @@ class _MenuScreenState extends ConsumerState<MenuScreen> {
       ),
     ).then((_) => ref.invalidate(menuItemsProvider));
   }
+
+  void _showImageSourceBottomSheet(BuildContext context, WidgetRef ref) {
+    final l = AppLocalizations.of(context)!;
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                leading: const Icon(Icons.camera_alt_rounded, color: AppColors.primary),
+                title: Text(l.takePhoto, style: const TextStyle(fontWeight: FontWeight.w600)),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  ref.read(menuScannerProvider.notifier).scanPhysicalMenu(source: ImageSource.camera);
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.photo_library_rounded, color: AppColors.secondary),
+                title: Text(l.chooseFromGallery, style: const TextStyle(fontWeight: FontWeight.w600)),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  ref.read(menuScannerProvider.notifier).scanPhysicalMenu(source: ImageSource.gallery);
+                },
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 }
 
-class _MenuItemCard extends ConsumerWidget {
+class _MenuItemCard extends ConsumerStatefulWidget {
   final dynamic item;
   final bool isRestaurant;
   final String partnerType;
@@ -314,14 +422,103 @@ class _MenuItemCard extends ConsumerWidget {
   });
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final fi = item is FoodItem ? item as FoodItem : null;
-    final gi = item is GroceryItem ? item as GroceryItem : null;
+  ConsumerState<_MenuItemCard> createState() => _MenuItemCardState();
+}
+
+class _MenuItemCardState extends ConsumerState<_MenuItemCard> {
+  late bool _isAvailable;
+
+  @override
+  void initState() {
+    super.initState();
+    _initAvailability();
+  }
+
+  @override
+  void didUpdateWidget(covariant _MenuItemCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.item != widget.item) {
+      _initAvailability();
+    }
+  }
+
+  void _initAvailability() {
+    final fi = widget.item is FoodItem ? widget.item as FoodItem : null;
+    final gi = widget.item is GroceryItem ? widget.item as GroceryItem : null;
+    _isAvailable = fi?.isAvailable ?? gi?.isAvailable ?? true;
+  }
+
+  Future<void> _toggleAvailability(bool value) async {
+    final previousState = _isAvailable;
+    
+    // 1. Optimistic update
+    setState(() => _isAvailable = value);
+
+    final isFood = widget.item is FoodItem;
+    final isGrocery = widget.item is GroceryItem;
+    
+    final itemId = isFood ? (widget.item as FoodItem).id : 
+                   isGrocery ? (widget.item as GroceryItem).id : '';
+
+    if (itemId.isEmpty) {
+      if (mounted) {
+        setState(() => _isAvailable = previousState);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text('Erreur: ID introuvable', style: TextStyle(color: Colors.white)),
+            backgroundColor: AppColors.error,
+          ),
+        );
+      }
+      return;
+    }
+
+    try {
+      // 2. Call backend
+      final repo = ref.read(menuRepositoryProvider);
+      final success = await repo.updateItemAvailability(
+        itemId, 
+        value, 
+        isGrocery: isGrocery,
+      );
+
+      // 3. Handle failure (Rollback)
+      if (!success) {
+        if (mounted) {
+          setState(() => _isAvailable = previousState);
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: const Text('Erreur: Impossible de mettre à jour la disponibilité', style: TextStyle(color: Colors.white)),
+              backgroundColor: AppColors.error,
+            ),
+          );
+        }
+      } else {
+        // Background silent refresh for global state
+        ref.invalidate(menuItemsProvider);
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isAvailable = previousState);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Erreur: $e', style: const TextStyle(color: Colors.white)),
+            backgroundColor: AppColors.error,
+          ),
+        );
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final l = AppLocalizations.of(context)!;
+    final fi = widget.item is FoodItem ? widget.item as FoodItem : null;
+    final gi = widget.item is GroceryItem ? widget.item as GroceryItem : null;
 
     final name = fi?.name ?? gi?.name ?? '';
     final price = fi?.price ?? gi?.price ?? 0.0;
     final imageUrl = fi?.imageUrl ?? gi?.imageUrl ?? '';
-    final isAvailable = fi?.isAvailable ?? gi?.isAvailable ?? true;
     final category = fi?.category ??
         gi?.category.toString().split('.').last ??
         '';
@@ -399,8 +596,8 @@ class _MenuItemCard extends ConsumerWidget {
                                       size: 11,
                                       color: AppColors.secondary),
                                   const SizedBox(width: 3),
-                                  Text('HH',
-                                      style: TextStyle(
+                                  Text(l.happyHourBadge,
+                                      style: const TextStyle(
                                           fontSize: 10,
                                           fontWeight: FontWeight.w700,
                                           color: AppColors.secondary)),
@@ -449,17 +646,9 @@ class _MenuItemCard extends ConsumerWidget {
 
                 // Availability switch
                 Switch(
-                  value: isAvailable,
+                  value: _isAvailable,
                   activeColor: AppColors.primary,
-                  onChanged: (v) async {
-                    final repo = ref.read(menuRepositoryProvider);
-                    if (isRestaurant) {
-                      await repo.toggleFoodItemAvailability(itemId, v);
-                    } else {
-                      await repo.toggleGroceryItemAvailability(itemId, v);
-                    }
-                    ref.invalidate(menuItemsProvider);
-                  },
+                  onChanged: _toggleAvailability,
                 ),
               ],
             ),
@@ -478,13 +667,13 @@ class _MenuItemCard extends ConsumerWidget {
                 _actionButton(
                   context,
                   icon: Icons.edit_rounded,
-                  label: 'Edit',
+                  label: l.edit,
                   color: AppColors.primary,
                   onTap: () => Navigator.push(
                     context,
                     MaterialPageRoute(
                       builder: (_) => AddEditItemScreen(
-                        partnerType: partnerType,
+                        partnerType: widget.partnerType,
                         existingFoodItem: fi,
                         existingGroceryItem: gi,
                       ),
@@ -495,7 +684,7 @@ class _MenuItemCard extends ConsumerWidget {
                 _actionButton(
                   context,
                   icon: Icons.local_fire_department_rounded,
-                  label: 'Happy Hour',
+                  label: l.happyHour,
                   color: AppColors.secondary,
                   onTap: () => Navigator.push(
                     context,
@@ -504,7 +693,7 @@ class _MenuItemCard extends ConsumerWidget {
                         itemId: itemId,
                         itemName: name,
                         originalPrice: price,
-                        isGrocery: !isRestaurant,
+                        isGrocery: !widget.isRestaurant,
                         currentDiscountPrice: discountPrice,
                         currentEndTime: discountEndTime != null ? DateTime.tryParse(discountEndTime!) : null,
                         currentQuantity: discountQuantity,
@@ -516,9 +705,9 @@ class _MenuItemCard extends ConsumerWidget {
                 _actionButton(
                   context,
                   icon: Icons.delete_outline_rounded,
-                  label: 'Delete',
+                  label: l.deleteAction,
                   color: AppColors.error,
-                  onTap: () => _confirmDelete(context, ref, itemId, isRestaurant),
+                  onTap: () => _confirmDelete(context, ref, itemId, widget.isRestaurant),
                 ),
               ],
             ),
@@ -574,17 +763,18 @@ class _MenuItemCard extends ConsumerWidget {
 
   void _confirmDelete(
       BuildContext context, WidgetRef ref, String itemId, bool isRestaurant) {
+    final l = AppLocalizations.of(context)!;
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Text('Delete Item',
-            style: TextStyle(fontWeight: FontWeight.w700)),
-        content: const Text('Are you sure you want to delete this item?'),
+        title: Text(l.deleteItem,
+            style: const TextStyle(fontWeight: FontWeight.w700)),
+        content: Text(l.confirmDeleteMessage),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
-            child: const Text('Cancel'),
+            child: Text(l.cancel),
           ),
           ElevatedButton(
             onPressed: () async {
@@ -603,8 +793,8 @@ class _MenuItemCard extends ConsumerWidget {
               shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(10)),
             ),
-            child: const Text('Delete',
-                style: TextStyle(fontWeight: FontWeight.w700)),
+            child: Text(l.deleteAction,
+                style: const TextStyle(fontWeight: FontWeight.w700)),
           ),
         ],
       ),

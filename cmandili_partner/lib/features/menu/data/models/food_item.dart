@@ -14,6 +14,12 @@ class FoodItem {
   final double? discountPrice;
   final String? discountEndTime;
   final int? discountQuantity;
+  
+  // Happy Hour
+  final bool isHappyHour;
+  final double? happyHourPrice;
+  final String? happyHourStart;
+  final String? happyHourEnd;
 
   FoodItem({
     required this.id,
@@ -31,6 +37,10 @@ class FoodItem {
     this.discountPrice,
     this.discountEndTime,
     this.discountQuantity,
+    this.isHappyHour = false,
+    this.happyHourPrice,
+    this.happyHourStart,
+    this.happyHourEnd,
   });
 
   factory FoodItem.fromJson(Map<String, dynamic> json) {
@@ -50,6 +60,10 @@ class FoodItem {
       discountPrice: (json['discountPrice'] as num?)?.toDouble(),
       discountEndTime: json['discountEndTime'] as String?,
       discountQuantity: json['discountQuantity'] as int?,
+      isHappyHour: json['isHappyHour'] as bool? ?? false,
+      happyHourPrice: (json['happyHourPrice'] as num?)?.toDouble(),
+      happyHourStart: json['happyHourStart'] as String?,
+      happyHourEnd: json['happyHourEnd'] as String?,
     );
   }
 }

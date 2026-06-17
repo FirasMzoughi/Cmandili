@@ -3,12 +3,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:uuid/uuid.dart';
+import 'package:cmandili_partner/l10n/app_localizations.dart';
 import '../../../core/theme/app_colors.dart';
 import '../providers/menu_provider.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../data/models/food_item.dart';
 import '../data/models/grocery_item.dart';
 import '../data/models/grocery_category.dart';
+import '../data/models/item_variant.dart';
 
 class AddEditItemScreen extends ConsumerStatefulWidget {
   final FoodItem? existingFoodItem;
@@ -44,8 +46,21 @@ class _AddEditItemScreenState extends ConsumerState<AddEditItemScreen> {
   bool _isLoading = false;
   GroceryCategory _selectedGroceryCategory = GroceryCategory.vegetables;
 
+  // Happy Hour
+  bool _isHappyHour = false;
+  late TextEditingController _happyHourPriceController;
+  TimeOfDay? _happyHourStart;
+  TimeOfDay? _happyHourEnd;
+
   File? _imageFile;
   final _picker = ImagePicker();
+
+  // Variants editor state. Each row is held as a tuple of controllers + the
+  // original ItemVariant id so we can preserve unchanged rows on save. The id
+  // is empty for newly-added rows; `replaceVariants` reissues fresh ids on
+  // insert anyway, so the local id only matters for keying the ListView.
+  final List<_VariantDraft> _variants = [];
+  bool _variantsLoaded = false;
 
   bool get _isRestaurant => widget.partnerType == 'restaurant';
   bool get _isEditing =>
@@ -75,7 +90,46 @@ class _AddEditItemScreenState extends ConsumerState<AddEditItemScreen> {
     _isSpicy = fi?.isSpicy ?? false;
     _isOrganic = gi?.isOrganic ?? false;
 
+    // Happy Hour init
+    _isHappyHour = fi?.isHappyHour ?? false;
+    _happyHourPriceController = TextEditingController(
+        text: fi?.happyHourPrice?.toStringAsFixed(2) ?? '');
+    
+    TimeOfDay? parseTime(String? timeStr) {
+      if (timeStr == null || timeStr.isEmpty) return null;
+      final parts = timeStr.split(':');
+      if (parts.length >= 2) {
+        return TimeOfDay(
+            hour: int.tryParse(parts[0]) ?? 0,
+            minute: int.tryParse(parts[1]) ?? 0);
+      }
+      return null;
+    }
+    _happyHourStart = parseTime(fi?.happyHourStart);
+    _happyHourEnd = parseTime(fi?.happyHourEnd);
+
     if (gi != null) _selectedGroceryCategory = gi.category;
+
+    if (_isEditing) _loadVariants();
+  }
+
+  Future<void> _loadVariants() async {
+    final id = widget.existingFoodItem?.id ?? widget.existingGroceryItem?.id;
+    if (id == null) return;
+    final repo = ref.read(menuRepositoryProvider);
+    final list = await repo.getVariants(itemId: id, isGrocery: !_isRestaurant);
+    if (!mounted) return;
+    setState(() {
+      _variants
+        ..clear()
+        ..addAll(list.map((v) => _VariantDraft(
+              id: v.id,
+              name: v.name,
+              price: v.price,
+              isAvailable: v.isAvailable,
+            )));
+      _variantsLoaded = true;
+    });
   }
 
   @override
@@ -87,6 +141,10 @@ class _AddEditItemScreenState extends ConsumerState<AddEditItemScreen> {
     _imageUrlController.dispose();
     _prepTimeController.dispose();
     _unitController.dispose();
+    _happyHourPriceController.dispose();
+    for (final v in _variants) {
+      v.dispose();
+    }
     super.dispose();
   }
 
@@ -102,10 +160,36 @@ class _AddEditItemScreenState extends ConsumerState<AddEditItemScreen> {
   Future<void> _save() async {
     if (!_formKey.currentState!.validate()) return;
     if (_isRestaurant && _categoryController.text.trim().isEmpty) {
+      final l = AppLocalizations.of(context)!;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please select or specify a category.', style: TextStyle(color: Colors.white)), backgroundColor: AppColors.error)
+        SnackBar(content: Text(l.selectCategory, style: const TextStyle(color: Colors.white)), backgroundColor: AppColors.error)
       );
       return;
+    }
+
+    if (_isHappyHour) {
+      final hpText = _happyHourPriceController.text.trim();
+      final basePrice = double.tryParse(_priceController.text) ?? 0.0;
+      final hpPrice = double.tryParse(hpText);
+
+      if (hpText.isEmpty || hpPrice == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Veuillez entrer un prix valide pour l\'Happy Hour', style: TextStyle(color: Colors.white)), backgroundColor: AppColors.error)
+        );
+        return;
+      }
+      if (hpPrice >= basePrice) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Le prix Happy Hour doit être inférieur au prix normal', style: TextStyle(color: Colors.white)), backgroundColor: AppColors.error)
+        );
+        return;
+      }
+      if (_happyHourStart == null || _happyHourEnd == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Veuillez sélectionner l\'heure de début et de fin', style: TextStyle(color: Colors.white)), backgroundColor: AppColors.error)
+        );
+        return;
+      }
     }
 
     setState(() => _isLoading = true);
@@ -123,6 +207,12 @@ class _AddEditItemScreenState extends ConsumerState<AddEditItemScreen> {
       }
     }
 
+    String _formatTime(TimeOfDay? time) {
+      if (time == null) return '';
+      return '${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}:00';
+    }
+
+    String? savedItemId;
     if (_isRestaurant) {
       final item = FoodItem(
         id: widget.existingFoodItem?.id ?? const Uuid().v4(),
@@ -136,12 +226,18 @@ class _AddEditItemScreenState extends ConsumerState<AddEditItemScreen> {
         preparationTime: int.tryParse(_prepTimeController.text) ?? 15,
         isVegetarian: _isVegetarian,
         isSpicy: _isSpicy,
+        isHappyHour: _isHappyHour,
+        happyHourPrice: _isHappyHour ? double.tryParse(_happyHourPriceController.text) : null,
+        happyHourStart: _isHappyHour ? _formatTime(_happyHourStart) : null,
+        happyHourEnd: _isHappyHour ? _formatTime(_happyHourEnd) : null,
       );
       if (_isEditing) {
         ok = await repo.updateFoodItem(item);
+        savedItemId = item.id;
       } else {
         final id = await repo.addFoodItem(item, profile?.entityId ?? '');
         ok = id != null;
+        savedItemId = id;
       }
     } else {
       final item = GroceryItem(
@@ -158,28 +254,57 @@ class _AddEditItemScreenState extends ConsumerState<AddEditItemScreen> {
       );
       if (_isEditing) {
         ok = await repo.updateGroceryItem(item);
+        savedItemId = item.id;
       } else {
         final id = await repo.addGroceryItem(item, profile?.entityId ?? '');
         ok = id != null;
+        savedItemId = id;
       }
+    }
+
+    // After the item itself is saved, replace its variant list. Skips when
+    // the item save failed — variants without an item are orphans.
+    if (ok && savedItemId != null) {
+      final cleaned = <ItemVariant>[];
+      for (var i = 0; i < _variants.length; i++) {
+        final d = _variants[i];
+        final name = d.nameCtrl.text.trim();
+        final priceStr = d.priceCtrl.text.trim();
+        if (name.isEmpty || priceStr.isEmpty) continue;
+        final price = double.tryParse(priceStr);
+        if (price == null) continue;
+        cleaned.add(ItemVariant(
+          id: d.id,
+          name: name,
+          price: price,
+          isAvailable: d.isAvailable,
+          sortOrder: i,
+        ));
+      }
+      await repo.replaceVariants(
+        itemId: savedItemId,
+        isGrocery: !_isRestaurant,
+        variants: cleaned,
+      );
     }
 
     if (mounted) {
       setState(() => _isLoading = false);
+      final l = AppLocalizations.of(context)!;
       if (ok) {
         ref.invalidate(menuItemsProvider);
         Navigator.pop(context);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(_isEditing ? 'Item updated!' : 'Item added!'),
+            content: Text(_isEditing ? l.itemUpdated : l.itemAdded),
             backgroundColor: AppColors.success,
             behavior: SnackBarBehavior.floating,
           ),
         );
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Failed to save. Try again.'),
+          SnackBar(
+            content: Text(l.failedToSave),
             backgroundColor: AppColors.error,
             behavior: SnackBarBehavior.floating,
           ),
@@ -190,11 +315,12 @@ class _AddEditItemScreenState extends ConsumerState<AddEditItemScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final l = AppLocalizations.of(context)!;
     return Scaffold(
       appBar: AppBar(
         title: Text(_isEditing
-            ? 'Edit ${_isRestaurant ? "Dish" : "Product"}'
-            : 'Add ${_isRestaurant ? "Dish" : "Product"}'),
+            ? 'Edit ${_isRestaurant ? l.addDish : l.addProduct}'
+            : 'Add ${_isRestaurant ? l.addDish : l.addProduct}'),
         backgroundColor: Colors.transparent,
         foregroundColor: AppColors.textPrimary,
         elevation: 0,
@@ -209,8 +335,8 @@ class _AddEditItemScreenState extends ConsumerState<AddEditItemScreen> {
                       height: 18,
                       child: CircularProgressIndicator(
                           strokeWidth: 2, color: AppColors.primary))
-                  : const Text('Save',
-                      style: TextStyle(
+                  : Text(l.save,
+                      style: const TextStyle(
                           color: AppColors.primary,
                           fontWeight: FontWeight.w700,
                           fontSize: 15)),
@@ -252,6 +378,32 @@ class _AddEditItemScreenState extends ConsumerState<AddEditItemScreen> {
             else
               _groceryCategoryDropdown(),
 
+            const SizedBox(height: 24),
+            _sectionLabel('Variants (optional)'),
+            const SizedBox(height: 6),
+            const Text(
+              'Add named options with their own prices (e.g. Small, Medium, '
+              'Chocolate, Vanilla). Customers must pick one. Leave empty to '
+              'use just the base price above.',
+              style: TextStyle(fontSize: 12, color: AppColors.textSecondary, height: 1.4),
+            ),
+            const SizedBox(height: 12),
+            _buildVariantsList(),
+            const SizedBox(height: 8),
+            OutlinedButton.icon(
+              onPressed: () {
+                setState(() => _variants.add(_VariantDraft()));
+              },
+              icon: const Icon(Icons.add, size: 18),
+              label: const Text('Add variant'),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: AppColors.primary,
+                side: const BorderSide(color: AppColors.primary),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              ),
+            ),
+            const SizedBox(height: 24),
+            _buildHappyHourSection(),
             const SizedBox(height: 24),
             _sectionLabel(_isRestaurant ? 'Dish Details' : 'Product Details'),
             const SizedBox(height: 10),
@@ -310,7 +462,7 @@ class _AddEditItemScreenState extends ConsumerState<AddEditItemScreen> {
                         child: CircularProgressIndicator(
                             color: Colors.white, strokeWidth: 2))
                     : Text(
-                        _isEditing ? 'Update Item' : 'Add Item',
+                        _isEditing ? l.updateItem : l.addItem,
                         style: const TextStyle(
                             fontWeight: FontWeight.w700, fontSize: 15),
                       ),
@@ -320,6 +472,78 @@ class _AddEditItemScreenState extends ConsumerState<AddEditItemScreen> {
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildVariantsList() {
+    if (_variants.isEmpty) {
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        decoration: BoxDecoration(
+          color: Colors.grey.shade50,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: Colors.grey.shade200),
+        ),
+        child: const Row(
+          children: [
+            Icon(Icons.tune_rounded, size: 18, color: AppColors.textLight),
+            SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                'No variants. Tap "Add variant" to give customers choices.',
+                style: TextStyle(fontSize: 13, color: AppColors.textSecondary),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+    return Column(
+      children: List.generate(_variants.length, (i) {
+        final v = _variants[i];
+        return Padding(
+          padding: const EdgeInsets.only(bottom: 10),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                flex: 3,
+                child: TextFormField(
+                  controller: v.nameCtrl,
+                  decoration: InputDecoration(
+                    labelText: 'Name',
+                    hintText: 'e.g. Chocolate',
+                    isDense: true,
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                flex: 2,
+                child: TextFormField(
+                  controller: v.priceCtrl,
+                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  decoration: InputDecoration(
+                    labelText: 'Price (DT)',
+                    isDense: true,
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                  ),
+                ),
+              ),
+              IconButton(
+                icon: const Icon(Icons.delete_outline, color: AppColors.error),
+                onPressed: () {
+                  setState(() {
+                    final removed = _variants.removeAt(i);
+                    removed.dispose();
+                  });
+                },
+              ),
+            ],
+          ),
+        );
+      }),
     );
   }
 
@@ -485,7 +709,7 @@ class _AddEditItemScreenState extends ConsumerState<AddEditItemScreen> {
               ),
             ),
             const SizedBox(height: 16),
-            Text('Select Category',
+            Text(AppLocalizations.of(context)!.selectCategoryHeader,
                 style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700)),
             const SizedBox(height: 16),
             Flexible(
@@ -525,8 +749,8 @@ class _AddEditItemScreenState extends ConsumerState<AddEditItemScreen> {
                               child: const Icon(Icons.add_rounded, color: AppColors.primary, size: 24),
                             ),
                             const SizedBox(height: 8),
-                            const Text('Add New',
-                                style: TextStyle(
+                            Text(AppLocalizations.of(context)!.addNew,
+                                style: const TextStyle(
                                     fontWeight: FontWeight.w700,
                                     fontSize: 12,
                                     color: AppColors.primary)),
@@ -607,12 +831,13 @@ class _AddEditItemScreenState extends ConsumerState<AddEditItemScreen> {
                           '🥐', '🍩', '🍦', '☕', '🧃', '🍹', '🥗', '🧁', '🫕', '🥨', '🌯', '📁'];
     String selectedEmoji = '🍽️';
     
+    final l = AppLocalizations.of(context)!;
     showDialog(
       context: context,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setDialogState) => AlertDialog(
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-          title: const Text('Create New Category', style: TextStyle(fontWeight: FontWeight.w700)),
+          title: Text(l.createNewCategory, style: const TextStyle(fontWeight: FontWeight.w700)),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -620,8 +845,8 @@ class _AddEditItemScreenState extends ConsumerState<AddEditItemScreen> {
               TextField(
                 controller: nameCtrl,
                 decoration: InputDecoration(
-                  labelText: 'Category Name',
-                  hintText: 'e.g. Tacos, Bowls…',
+                  labelText: l.categoryName,
+                  hintText: l.categoryNameHint,
                   border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                   focusedBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(12),
@@ -630,7 +855,7 @@ class _AddEditItemScreenState extends ConsumerState<AddEditItemScreen> {
                 ),
               ),
               const SizedBox(height: 16),
-              const Text('Choose an Icon', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
+              Text(l.chooseAnIcon, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
               const SizedBox(height: 8),
               Wrap(
                 spacing: 8,
@@ -661,7 +886,7 @@ class _AddEditItemScreenState extends ConsumerState<AddEditItemScreen> {
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(ctx),
-              child: const Text('Cancel'),
+              child: Text(l.cancel),
             ),
             ElevatedButton(
               onPressed: () {
@@ -680,7 +905,7 @@ class _AddEditItemScreenState extends ConsumerState<AddEditItemScreen> {
                 foregroundColor: Colors.white,
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
               ),
-              child: const Text('Create', style: TextStyle(fontWeight: FontWeight.w700)),
+              child: Text(l.create, style: const TextStyle(fontWeight: FontWeight.w700)),
             ),
           ],
         ),
@@ -716,10 +941,10 @@ class _AddEditItemScreenState extends ConsumerState<AddEditItemScreen> {
         child: (_imageFile == null && _imageUrlController.text.isEmpty)
             ? Column(
                 mainAxisAlignment: MainAxisAlignment.center,
-                children: const [
-                  Icon(Icons.add_photo_alternate_outlined, color: AppColors.primary, size: 40),
-                  SizedBox(height: 8),
-                  Text('Tap to upload dish picture', style: TextStyle(color: AppColors.textSecondary, fontWeight: FontWeight.w600)),
+                children: [
+                  const Icon(Icons.add_photo_alternate_outlined, color: AppColors.primary, size: 40),
+                  const SizedBox(height: 8),
+                  Text(AppLocalizations.of(context)!.tapUploadDishPicture, style: const TextStyle(color: AppColors.textSecondary, fontWeight: FontWeight.w600)),
                 ],
               )
             : Align(
@@ -787,5 +1012,150 @@ class _AddEditItemScreenState extends ConsumerState<AddEditItemScreen> {
       secondary: Icon(icon, color: AppColors.textSecondary, size: 22),
       contentPadding: EdgeInsets.zero,
     );
+  }
+
+  Widget _buildHappyHourSection() {
+    return Container(
+      decoration: BoxDecoration(
+        color: _isHappyHour ? AppColors.primary.withOpacity(0.05) : Colors.transparent,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: _isHappyHour ? AppColors.primary.withOpacity(0.3) : AppColors.textLight.withOpacity(0.15),
+          width: 1.5,
+        ),
+      ),
+      child: Column(
+        children: [
+          SwitchListTile(
+            value: _isHappyHour,
+            onChanged: (v) => setState(() => _isHappyHour = v),
+            activeColor: AppColors.primary,
+            title: const Text('Activer Happy Hour',
+                style: TextStyle(fontWeight: FontWeight.w700, fontSize: 15)),
+            subtitle: const Text('Offre spéciale à durée limitée',
+                style: TextStyle(fontSize: 12, color: AppColors.textSecondary)),
+            secondary: Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: _isHappyHour ? AppColors.primary.withOpacity(0.1) : AppColors.background,
+                shape: BoxShape.circle,
+              ),
+              child: Icon(Icons.celebration_outlined, 
+                  color: _isHappyHour ? AppColors.primary : AppColors.textSecondary),
+            ),
+            contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          ),
+          if (_isHappyHour) ...[
+            const Divider(height: 1),
+            Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                children: [
+                  _field(
+                    _happyHourPriceController,
+                    'Prix Happy Hour (DT)',
+                    Icons.sell_outlined,
+                    inputType: const TextInputType.numberWithOptions(decimal: true),
+                  ),
+                  const SizedBox(height: 16),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _timePickerField(
+                          'Heure de début',
+                          _happyHourStart,
+                          (t) => setState(() => _happyHourStart = t),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: _timePickerField(
+                          'Heure de fin',
+                          _happyHourEnd,
+                          (t) => setState(() => _happyHourEnd = t),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _timePickerField(String label, TimeOfDay? time, ValueChanged<TimeOfDay> onSelected) {
+    return GestureDetector(
+      onTap: () async {
+        final t = await showTimePicker(
+          context: context,
+          initialTime: time ?? const TimeOfDay(hour: 18, minute: 0),
+          builder: (context, child) {
+            return Theme(
+              data: Theme.of(context).copyWith(
+                colorScheme: const ColorScheme.light(
+                  primary: AppColors.primary,
+                ),
+              ),
+              child: child!,
+            );
+          },
+        );
+        if (t != null) onSelected(t);
+      },
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+        decoration: BoxDecoration(
+          color: AppColors.background,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: AppColors.textLight.withOpacity(0.15), width: 1.5),
+        ),
+        child: Row(
+          children: [
+            const Icon(Icons.access_time, size: 18, color: AppColors.textSecondary),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                time != null ? time.format(context) : label,
+                style: TextStyle(
+                  fontSize: 14,
+                  color: time != null ? AppColors.textPrimary : AppColors.textSecondary,
+                  fontWeight: time != null ? FontWeight.w600 : FontWeight.normal,
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Editable row in the variants list. Wraps a name + price controller plus
+/// the original variant id (empty string for newly-added rows). Lives in the
+/// State class so controllers are disposed in the State's dispose().
+class _VariantDraft {
+  final String id; // empty for new rows
+  final TextEditingController nameCtrl;
+  final TextEditingController priceCtrl;
+  bool isAvailable;
+
+  _VariantDraft({
+    this.id = '',
+    String name = '',
+    double? price,
+    this.isAvailable = true,
+  })  : nameCtrl = TextEditingController(text: name),
+        priceCtrl = TextEditingController(
+          text: price == null ? '' : price.toStringAsFixed(2),
+        );
+
+  void dispose() {
+    nameCtrl.dispose();
+    priceCtrl.dispose();
   }
 }

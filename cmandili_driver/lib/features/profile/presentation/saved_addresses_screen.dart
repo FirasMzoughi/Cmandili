@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/theme/app_colors.dart';
 import '../providers/address_provider.dart';
+import 'package:cmandili_driver/l10n/app_localizations.dart';
 
 class SavedAddressesScreen extends ConsumerWidget {
   const SavedAddressesScreen({super.key});
@@ -10,9 +11,10 @@ class SavedAddressesScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final addresses = ref.watch(addressProvider);
 
+    final l = AppLocalizations.of(context)!;
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Saved Addresses', style: TextStyle(fontWeight: FontWeight.bold)),
+        title: Text(l.savedAddresses, style: const TextStyle(fontWeight: FontWeight.bold)),
         centerTitle: true,
         actions: [
           IconButton(
@@ -22,7 +24,7 @@ class SavedAddressesScreen extends ConsumerWidget {
         ],
       ),
       body: addresses.isEmpty
-          ? const Center(child: Text('No addresses saved'))
+          ? Center(child: Text(l.noAddressesSaved))
           : ListView.builder(
               padding: const EdgeInsets.all(16),
               itemCount: addresses.length,
@@ -35,7 +37,7 @@ class SavedAddressesScreen extends ConsumerWidget {
                   onDismissed: (direction) {
                     ref.read(addressProvider.notifier).deleteAddress(address.id);
                     ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Address removed')),
+                      SnackBar(content: Text(l.addressRemoved)),
                     );
                   },
                   child: Card(
@@ -50,15 +52,15 @@ class SavedAddressesScreen extends ConsumerWidget {
                       title: Text(address.name, style: const TextStyle(fontWeight: FontWeight.bold)),
                       subtitle: Text(address.fullAddress),
                       trailing: address.isDefault
-                          ? const Chip(
-                              label: Text('Default', style: TextStyle(fontSize: 10, color: Colors.white)),
+                          ? Chip(
+                              label: Text(l.defaultLabel, style: const TextStyle(fontSize: 10, color: Colors.white)),
                               backgroundColor: AppColors.primary,
                             )
                           : TextButton(
                               onPressed: () {
                                 ref.read(addressProvider.notifier).setDefault(address.id);
                               },
-                              child: const Text('Set Default'),
+                              child: Text(l.setDefault),
                             ),
                     ),
                   ),
@@ -83,42 +85,45 @@ class SavedAddressesScreen extends ConsumerWidget {
 
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Add New Address'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: nameController,
-              decoration: const InputDecoration(labelText: 'Label (e.g., Home, Work)'),
+      builder: (ctx) {
+        final l = AppLocalizations.of(ctx)!;
+        return AlertDialog(
+          title: Text(l.addNewAddress),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: nameController,
+                decoration: InputDecoration(labelText: l.labelHint),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: addressController,
+                decoration: InputDecoration(labelText: l.fullAddressLabel),
+                maxLines: 2,
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: Text(l.cancel),
             ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: addressController,
-              decoration: const InputDecoration(labelText: 'Full Address'),
-              maxLines: 2,
+            ElevatedButton(
+              onPressed: () {
+                if (nameController.text.isNotEmpty && addressController.text.isNotEmpty) {
+                  ref.read(addressProvider.notifier).addAddress(
+                        nameController.text,
+                        addressController.text,
+                      );
+                  Navigator.pop(ctx);
+                }
+              },
+              child: Text(l.save),
             ),
           ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              if (nameController.text.isNotEmpty && addressController.text.isNotEmpty) {
-                ref.read(addressProvider.notifier).addAddress(
-                      nameController.text,
-                      addressController.text,
-                    );
-                Navigator.pop(context);
-              }
-            },
-            child: const Text('Save'),
-          ),
-        ],
-      ),
+        );
+      },
     );
   }
 }

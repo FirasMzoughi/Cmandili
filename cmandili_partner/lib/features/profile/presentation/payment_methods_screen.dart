@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:cmandili_partner/l10n/app_localizations.dart';
 import '../../../core/theme/app_colors.dart';
 import '../providers/payment_provider.dart';
 
@@ -9,10 +10,11 @@ class PaymentMethodsScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final payments = ref.watch(paymentProvider);
+    final l = AppLocalizations.of(context)!;
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Payment Methods', style: TextStyle(fontWeight: FontWeight.bold)),
+        title: Text(l.paymentMethods, style: const TextStyle(fontWeight: FontWeight.bold)),
         centerTitle: true,
         actions: [
           IconButton(
@@ -22,7 +24,7 @@ class PaymentMethodsScreen extends ConsumerWidget {
         ],
       ),
       body: payments.isEmpty
-          ? const Center(child: Text('No payment methods saved'))
+          ? Center(child: Text(l.noPaymentMethods))
           : ListView.builder(
               padding: const EdgeInsets.all(16),
               itemCount: payments.length,
@@ -114,35 +116,36 @@ class PaymentMethodsScreen extends ConsumerWidget {
     final nameController = TextEditingController();
     final numberController = TextEditingController();
     final expiryController = TextEditingController();
+    final l = AppLocalizations.of(context)!;
 
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Add New Card'),
+        title: Text(l.addNewCard),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             TextField(
               controller: nameController,
-              decoration: const InputDecoration(labelText: 'Cardholder Name'),
+              decoration: InputDecoration(labelText: l.cardholderName),
             ),
             const SizedBox(height: 12),
             TextField(
               controller: numberController,
-              decoration: const InputDecoration(labelText: 'Card Number'),
+              decoration: InputDecoration(labelText: l.cardNumber),
               keyboardType: TextInputType.number,
             ),
             const SizedBox(height: 12),
             TextField(
               controller: expiryController,
-              decoration: const InputDecoration(labelText: 'Expiry Date (MM/YY)'),
+              decoration: InputDecoration(labelText: l.expiryDate),
             ),
           ],
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
+            child: Text(l.cancel),
           ),
           ElevatedButton(
             onPressed: () {
@@ -155,7 +158,7 @@ class PaymentMethodsScreen extends ConsumerWidget {
                 Navigator.pop(context);
               }
             },
-            child: const Text('Save'),
+            child: Text(l.save),
           ),
         ],
       ),

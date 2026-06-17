@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:geocoding/geocoding.dart';
 
@@ -29,21 +30,42 @@ class LocationService {
   static Future<Position?> getCurrentPosition() async {
     final serviceEnabled = await isLocationServiceEnabled();
     if (!serviceEnabled) {
+      debugPrint('[LocationService] GPS service is disabled');
       return null;
     }
-    
+
     final hasPermission = await checkPermissions();
     if (!hasPermission) {
+      debugPrint('[LocationService] Location permission denied');
       return null;
     }
-    
+
+    // Try high-accuracy with a timeout. On Android, getCurrentPosition with
+    // LocationAccuracy.high can block indefinitely — the timeout ensures we
+    // fall back rather than hanging silently.
     try {
-      return await Geolocator.getCurrentPosition(
+      final position = await Geolocator.getCurrentPosition(
         desiredAccuracy: LocationAccuracy.high,
-      );
+      ).timeout(const Duration(seconds: 8));
+      debugPrint('[LocationService] Got position: ${position.latitude}, ${position.longitude}');
+      return position;
     } catch (e) {
-      return null;
+      debugPrint('[LocationService] getCurrentPosition failed ($e), trying last known...');
     }
+
+    // Fallback: last known position is instant and avoids a 0,0 write
+    try {
+      final last = await Geolocator.getLastKnownPosition();
+      if (last != null) {
+        debugPrint('[LocationService] Using last known: ${last.latitude}, ${last.longitude}');
+        return last;
+      }
+    } catch (e) {
+      debugPrint('[LocationService] getLastKnownPosition failed: $e');
+    }
+
+    debugPrint('[LocationService] ⚠️ Could not get any position');
+    return null;
   }
   
   // Get address from coordinates

@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Used by FCM as the accent color when rendering notifications while the
+         app is killed (see com.google.firebase.messaging.default_notification_color). -->
+    <color name="notification_color">#FF6B35</color>
+</resources>

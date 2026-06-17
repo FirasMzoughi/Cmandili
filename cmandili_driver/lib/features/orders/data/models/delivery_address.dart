@@ -9,6 +9,11 @@ class DeliveryAddress {
   final String? instructions;
   final bool isDefault;
 
+  // Customer name + phone captured by mobile at checkout. Lets the driver
+  // call the customer without joining the profiles table.
+  final String? recipientName;
+  final String? phone;
+
   DeliveryAddress({
     required this.id,
     required this.label,
@@ -19,6 +24,8 @@ class DeliveryAddress {
     this.floor,
     this.instructions,
     this.isDefault = false,
+    this.recipientName,
+    this.phone,
   });
 
   factory DeliveryAddress.fromJson(Map<String, dynamic> json) {
@@ -32,6 +39,8 @@ class DeliveryAddress {
       floor: json['floor'],
       instructions: json['instructions'],
       isDefault: json['isDefault'] ?? false,
+      recipientName: json['recipientName'] as String?,
+      phone: json['phone'] as String?,
     );
   }
 
@@ -46,6 +55,8 @@ class DeliveryAddress {
       'floor': floor,
       'instructions': instructions,
       'isDefault': isDefault,
+      'recipientName': recipientName,
+      'phone': phone,
     };
   }
 }

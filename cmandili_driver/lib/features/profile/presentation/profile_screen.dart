@@ -83,11 +83,11 @@ class ProfileScreen extends ConsumerWidget {
             padding: EdgeInsets.all(screenWidth * 0.05),
             sliver: SliverList(
               delegate: SliverChildListDelegate([
-                _buildSectionHeader(context, 'Account', screenWidth),
+                _buildSectionHeader(context, AppLocalizations.of(context)!.account, screenWidth),
                 _buildProfileItem(
                   context,
                   icon: Icons.person_outline_rounded,
-                  title: 'Edit Profile',
+                  title: AppLocalizations.of(context)!.editProfile,
                   onTap: () {
                     Navigator.push(context, MaterialPageRoute(builder: (_) => const EditProfileScreen()));
                   },
@@ -97,7 +97,7 @@ class ProfileScreen extends ConsumerWidget {
                 _buildProfileItem(
                   context,
                   icon: Icons.two_wheeler_rounded,
-                  title: 'Vehicle Info',
+                  title: AppLocalizations.of(context)!.vehicleInfo,
                   onTap: () {
                     Navigator.push(context, MaterialPageRoute(builder: (_) => const VehicleInfoScreen()));
                   },
@@ -107,7 +107,7 @@ class ProfileScreen extends ConsumerWidget {
                 _buildProfileItem(
                   context,
                   icon: Icons.account_balance_outlined,
-                  title: 'Earnings & Payout',
+                  title: AppLocalizations.of(context)!.earningsAndPayout,
                   onTap: () {
                     Navigator.push(context, MaterialPageRoute(builder: (_) => const DriverPayoutScreen()));
                   },
@@ -119,7 +119,7 @@ class ProfileScreen extends ConsumerWidget {
                 _buildProfileItem(
                   context,
                   icon: Icons.notifications_outlined,
-                  title: 'Notifications',
+                  title: AppLocalizations.of(context)!.notifications,
                   onTap: () {
                     Navigator.push(context, MaterialPageRoute(builder: (_) => const NotificationScreen()));
                   },
@@ -149,7 +149,7 @@ class ProfileScreen extends ConsumerWidget {
                 _buildProfileItem(
                   context,
                   icon: Icons.help_outline_rounded,
-                  title: 'Help & Support',
+                  title: AppLocalizations.of(context)!.helpSupport,
                   onTap: () {
                     Navigator.push(context, MaterialPageRoute(builder: (_) => const HelpSupportScreen()));
                   },

@@ -14,34 +14,42 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
 import 'core/config/supabase_config.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
 import 'core/push/push_service.dart';
 import 'firebase_options.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
+  // dotenv MUST resolve first — SupabaseConfig and the Mapbox token both
+  // read from it. Then run Supabase + Firebase in parallel.
   await dotenv.load(fileName: '.env');
 
-  // Mapbox runtime token. Public (pk.*) only — never the sk.* download token.
-  // The map view will fail to render if this is empty or wrong.
   MapboxOptions.setAccessToken(dotenv.env['MAPBOX_PUBLIC_TOKEN'] ?? '');
 
-  await Supabase.initialize(
-    url: SupabaseConfig.url,
-    anonKey: SupabaseConfig.anonKey,
-  );
-
-  // Firebase + FCM push. If init fails, the app still runs but push is disabled.
-  try {
-    await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
-    await PushService.instance.initialize();
-  } catch (_) {}
-
-  runApp(
-    const ProviderScope(
-      child: MyApp(),
+  await Future.wait([
+    Supabase.initialize(
+      url: SupabaseConfig.url,
+      anonKey: SupabaseConfig.anonKey,
     ),
-  );
+    Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform)
+        .catchError((_) => Firebase.app()),
+  ]);
+
+  // MUST be registered before runApp(). Firebase spawns a separate Dart
+  // isolate for background/terminated FCM messages and calls this handler
+  // directly via the @pragma('vm:entry-point') annotation. If it is
+  // registered after runApp() (e.g. in addPostFrameCallback), Android never
+  // wires it up and data-only alarm messages are silently dropped.
+  FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
+
+  runApp(const ProviderScope(child: MyApp()));
+
+  // Defer the rest of push init (token fetch + Supabase upsert + foreground
+  // listener) off the critical path so it doesn't stall first frame.
+  WidgetsBinding.instance.addPostFrameCallback((_) {
+    PushService.instance.initialize().catchError((_) {});
+  });
 }
 
 class MyApp extends ConsumerWidget {

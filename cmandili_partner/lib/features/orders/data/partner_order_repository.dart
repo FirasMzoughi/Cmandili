@@ -7,12 +7,16 @@ class PartnerOrderRepository {
   final _supabase = Supabase.instance.client;
 
   /// Fetch all orders for a partner, with items joined.
+  ///
+  /// Reads from the `orders_with_customer` view so each row already contains
+  /// the resolved `customer_name` + `customer_phone` (delivery_address →
+  /// profiles → recipient_* fallback chain) without a second round-trip.
   Future<List<Order>> getPartnerOrders(
       String entityId, String partnerType) async {
     final filterColumn =
         partnerType == 'restaurant' ? 'restaurant_id' : 'supermarket_id';
     final rows = await _supabase
-        .from('orders')
+        .from('orders_with_customer')
         .select('*, order_items(*, food_items(*), grocery_items(*))')
         .eq(filterColumn, entityId)
         .order('created_at', ascending: false);
@@ -25,17 +29,45 @@ class PartnerOrderRepository {
   ///
   /// Supabase's `.stream()` does not support joins, so we use Postgres Changes
   /// for real-time notifications and re-fetch the full list (with items) on
-  /// every change.
+  /// every change. Re-fetches are debounced and de-duped so a burst of
+  /// changes (e.g. a status flip + a driver-assignment) collapse into one
+  /// refresh instead of N round-trips with all the join data.
   Stream<List<Order>> streamPartnerOrders(
       String entityId, String partnerType) {
     final controller = StreamController<List<Order>>();
+    Timer? debounce;
+    bool inFlight = false;
+    bool pending = false;
 
-    // Push an initial load immediately.
-    getPartnerOrders(entityId, partnerType).then((orders) {
-      if (!controller.isClosed) controller.add(orders);
-    });
+    Future<void> refresh() async {
+      if (inFlight) {
+        pending = true;
+        return;
+      }
+      inFlight = true;
+      try {
+        final orders = await getPartnerOrders(entityId, partnerType);
+        if (!controller.isClosed) controller.add(orders);
+      } catch (e) {
+        if (!controller.isClosed) controller.addError(e);
+      } finally {
+        inFlight = false;
+        if (pending) {
+          pending = false;
+          // Drain anything that arrived while we were fetching.
+          unawaited(refresh());
+        }
+      }
+    }
 
-    // Subscribe to any INSERT / UPDATE / DELETE on the orders table for this partner.
+    void scheduleRefresh() {
+      debounce?.cancel();
+      debounce = Timer(const Duration(milliseconds: 250), refresh);
+    }
+
+    // Initial load is immediate (no debounce — user is waiting on first paint).
+    unawaited(refresh());
+
     final filterColumn =
         partnerType == 'restaurant' ? 'restaurant_id' : 'supermarket_id';
     final channel = _supabase
@@ -49,12 +81,61 @@ class PartnerOrderRepository {
             column: filterColumn,
             value: entityId,
           ),
-          callback: (_) {
-            // Re-fetch on any change so items are always included.
-            getPartnerOrders(entityId, partnerType).then((orders) {
-              if (!controller.isClosed) controller.add(orders);
-            });
-          },
+          callback: (_) => scheduleRefresh(),
+        )
+        .subscribe();
+
+    controller.onCancel = () {
+      debounce?.cancel();
+      _supabase.removeChannel(channel);
+      controller.close();
+    };
+
+    return controller.stream;
+  }
+
+  /// Stream a single order in real-time for the tracking screen.
+  ///
+  /// Supabase's `.stream()` can't join, so we listen for Postgres changes on
+  /// this order's row and re-fetch the full record (with items) on each change.
+  /// The first value is emitted immediately on subscribe.
+  Stream<Order> streamOrder(String orderId) {
+    final controller = StreamController<Order>();
+    bool inFlight = false;
+
+    Future<void> refresh() async {
+      if (inFlight) return;
+      inFlight = true;
+      try {
+        final row = await _supabase
+            .from('orders_with_customer')
+            .select('*, order_items(*, food_items(*), grocery_items(*))')
+            .eq('id', orderId)
+            .maybeSingle();
+        if (row != null && !controller.isClosed) {
+          controller.add(Order.fromJson(_mapOrderFromDb(row)));
+        }
+      } catch (e) {
+        if (!controller.isClosed) controller.addError(e);
+      } finally {
+        inFlight = false;
+      }
+    }
+
+    unawaited(refresh());
+
+    final channel = _supabase
+        .channel('partner_order_$orderId')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'orders',
+          filter: PostgresChangeFilter(
+            type: PostgresChangeFilterType.eq,
+            column: 'id',
+            value: orderId,
+          ),
+          callback: (_) => refresh(),
         )
         .subscribe();
 
@@ -67,6 +148,11 @@ class PartnerOrderRepository {
   }
 
   /// Update the status of an order.
+  ///
+  /// Returns true on success, false on failure. The error is also rethrown so
+  /// callers can surface it to the user — a silent `return false` previously
+  /// hid trigger failures (e.g. the notifications.message column drift) and
+  /// made the UI look frozen.
   Future<bool> updateOrderStatus(String orderId, OrderStatus newStatus) async {
     try {
       await _supabase.from('orders').update({
@@ -75,7 +161,7 @@ class PartnerOrderRepository {
       return true;
     } catch (e) {
       debugPrint('Error updating order status: $e');
-      return false;
+      rethrow;
     }
   }
 
@@ -177,6 +263,8 @@ class PartnerOrderRepository {
       'recipientPhone': dbJson['recipient_phone'],
       'packageDescription': dbJson['package_description'],
       'isRecipientAccepted': false,
+      'customerName': dbJson['customer_name'],
+      'customerPhone': dbJson['customer_phone'],
     };
   }
 
@@ -191,8 +279,19 @@ class PartnerOrderRepository {
       final quantity = (row['quantity'] as num?)?.toInt() ?? 1;
       final price = (row['price'] as num?)?.toDouble() ?? 0.0;
       final specialInstructions = row['special_instructions'] as String?;
-      // options contains voice/text customization set by the mobile client
+      // options contains voice/text customization set by the mobile client.
+      // Prefer the dedicated voice_note_url column when present — it's the
+      // public Supabase Storage URL set by the mobile checkout flow. Fall
+      // back to legacy options.content for older rows.
+      final voiceNoteUrl = row['voice_note_url'] as String?;
       final options = row['options'];
+      Map<String, dynamic> mergedOptions = options is Map
+          ? Map<String, dynamic>.from(options)
+          : <String, dynamic>{};
+      if (voiceNoteUrl != null && voiceNoteUrl.isNotEmpty) {
+        mergedOptions['type'] = 'voice';
+        mergedOptions['content'] = voiceNoteUrl;
+      }
 
       // Food item (restaurant order)
       final foodData = row['food_items'] as Map<String, dynamic>?;
@@ -201,7 +300,7 @@ class PartnerOrderRepository {
           'type': 'restaurant',
           'quantity': quantity,
           'specialInstructions': specialInstructions,
-          'options': options,
+          'options': mergedOptions,
           'foodItem': {
             'id': foodData['id'] ?? '',
             'restaurantId': foodData['restaurant_id'] ?? '',
@@ -226,7 +325,7 @@ class PartnerOrderRepository {
         result.add({
           'type': 'grocery',
           'quantity': quantity,
-          'options': options,
+          'options': mergedOptions,
           'groceryItem': {
             'id': groceryData['id'] ?? '',
             'supermarketId': groceryData['supermarket_id'] ?? '',
@@ -249,7 +348,7 @@ class PartnerOrderRepository {
           'type': 'restaurant',
           'quantity': quantity,
           'specialInstructions': specialInstructions,
-          'options': options,
+          'options': mergedOptions,
           'foodItem': {
             'id': row['food_item_id'] ?? '',
             'restaurantId': '',
@@ -269,6 +368,7 @@ class PartnerOrderRepository {
         result.add({
           'type': 'grocery',
           'quantity': quantity,
+          'options': mergedOptions,
           'groceryItem': {
             'id': row['grocery_item_id'] ?? '',
             'supermarketId': '',

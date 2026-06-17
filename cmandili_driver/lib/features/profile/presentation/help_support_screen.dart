@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/theme/app_colors.dart';
+import 'package:cmandili_driver/l10n/app_localizations.dart';
 
 class HelpSupportScreen extends StatefulWidget {
   const HelpSupportScreen({super.key});
@@ -27,7 +28,7 @@ class _HelpSupportScreenState extends State<HelpSupportScreen> {
     final userId = Supabase.instance.client.auth.currentUser?.id;
     if (userId == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please sign in first.')),
+        SnackBar(content: Text(AppLocalizations.of(context)!.pleaseSignInFirst)),
       );
       return;
     }
@@ -41,8 +42,8 @@ class _HelpSupportScreenState extends State<HelpSupportScreen> {
       });
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Support ticket sent! We will contact you soon.'),
+        SnackBar(
+          content: Text(AppLocalizations.of(context)!.supportTicketSent),
           backgroundColor: Colors.green,
         ),
       );
@@ -59,9 +60,10 @@ class _HelpSupportScreenState extends State<HelpSupportScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final l = AppLocalizations.of(context)!;
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Help & Support', style: TextStyle(fontWeight: FontWeight.bold)),
+        title: Text(l.helpSupport, style: const TextStyle(fontWeight: FontWeight.bold)),
         centerTitle: true,
       ),
       body: SingleChildScrollView(
@@ -71,33 +73,33 @@ class _HelpSupportScreenState extends State<HelpSupportScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              const Text(
-                'How can we help you?',
-                style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+              Text(
+                l.howCanWeHelp,
+                style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
                 textAlign: TextAlign.center,
               ),
               const SizedBox(height: 10),
-              const Text(
-                'Fill out the form below and our team will get back to you within 24 hours.',
-                style: TextStyle(fontSize: 14, color: Colors.grey),
+              Text(
+                l.fillFormDescription,
+                style: const TextStyle(fontSize: 14, color: Colors.grey),
                 textAlign: TextAlign.center,
               ),
               const SizedBox(height: 30),
               TextFormField(
                 controller: _subjectController,
                 decoration: InputDecoration(
-                  labelText: 'Subject',
+                  labelText: l.subject,
                   prefixIcon: const Icon(Icons.title, color: AppColors.primary),
                   border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                 ),
-                validator: (value) => value!.isEmpty ? 'Please enter a subject' : null,
+                validator: (value) => value!.isEmpty ? l.pleaseEnterSubject : null,
               ),
               const SizedBox(height: 20),
               TextFormField(
                 controller: _messageController,
                 maxLines: 6,
                 decoration: InputDecoration(
-                  labelText: 'Message',
+                  labelText: l.message,
                   alignLabelWithHint: true,
                   prefixIcon: const Padding(
                     padding: EdgeInsets.only(bottom: 100),
@@ -105,7 +107,7 @@ class _HelpSupportScreenState extends State<HelpSupportScreen> {
                   ),
                   border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                 ),
-                validator: (value) => value!.isEmpty ? 'Please enter your message' : null,
+                validator: (value) => value!.isEmpty ? l.pleaseEnterMessage : null,
               ),
               const SizedBox(height: 40),
               ElevatedButton(
@@ -121,8 +123,8 @@ class _HelpSupportScreenState extends State<HelpSupportScreen> {
                         width: 20,
                         child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
                       )
-                    : const Text('Submit Ticket',
-                        style: TextStyle(fontSize: 16, color: Colors.white, fontWeight: FontWeight.bold)),
+                    : Text(l.submitTicket,
+                        style: const TextStyle(fontSize: 16, color: Colors.white, fontWeight: FontWeight.bold)),
               ),
               const SizedBox(height: 30),
               const _ContactOption(

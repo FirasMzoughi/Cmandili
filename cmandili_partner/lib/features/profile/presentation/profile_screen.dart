@@ -62,7 +62,7 @@ class ProfileScreen extends ConsumerWidget {
                         ),
                         SizedBox(height: screenHeight * 0.02),
                         Text(
-                          profile?.businessName ?? 'Partner',
+                          profile?.businessName ?? AppLocalizations.of(context)!.partner,
                           style: TextStyle(
                             color: Colors.white,
                             fontSize: screenWidth * 0.06,
@@ -70,7 +70,7 @@ class ProfileScreen extends ConsumerWidget {
                           ),
                         ),
                         Text(
-                          profile?.partnerType == 'restaurant' ? 'Restaurant Partner' : 'Supermarket Partner',
+                          profile?.partnerType == 'restaurant' ? AppLocalizations.of(context)!.restaurantPartner : AppLocalizations.of(context)!.supermarketPartner,
                           style: TextStyle(
                             color: Colors.white70,
                             fontSize: screenWidth * 0.035,
@@ -87,7 +87,7 @@ class ProfileScreen extends ConsumerWidget {
                         Icon(Icons.person_rounded, size: screenWidth * 0.2, color: Colors.white),
                         SizedBox(height: screenHeight * 0.02),
                         Text(
-                          'Partner',
+                          AppLocalizations.of(context)!.partner,
                           style: TextStyle(
                             color: Colors.white,
                             fontSize: screenWidth * 0.06,
@@ -109,7 +109,7 @@ class ProfileScreen extends ConsumerWidget {
                 _buildProfileItem(
                   context,
                   icon: Icons.person_outline_rounded,
-                  title: 'Edit Profile',
+                  title: AppLocalizations.of(context)!.editProfile,
                   onTap: () {
                     Navigator.push(context, MaterialPageRoute(builder: (_) => const EditProfileScreen()));
                   },
@@ -119,7 +119,7 @@ class ProfileScreen extends ConsumerWidget {
                 _buildProfileItem(
                   context,
                   icon: Icons.store_rounded,
-                  title: 'Business Info',
+                  title: AppLocalizations.of(context)!.businessInfo,
                   onTap: () {
                     Navigator.push(context, MaterialPageRoute(builder: (_) => const BusinessInfoScreen()));
                   },
@@ -129,7 +129,7 @@ class ProfileScreen extends ConsumerWidget {
                 _buildProfileItem(
                   context,
                   icon: Icons.account_balance_outlined,
-                  title: 'Payout Info',
+                  title: AppLocalizations.of(context)!.payoutInfo,
                   onTap: () {
                     Navigator.push(context, MaterialPageRoute(builder: (_) => const PayoutScreen()));
                   },
@@ -141,7 +141,7 @@ class ProfileScreen extends ConsumerWidget {
                 _buildProfileItem(
                   context,
                   icon: Icons.notifications_outlined,
-                  title: 'Notifications',
+                  title: AppLocalizations.of(context)!.notifications,
                   onTap: () {
                     Navigator.push(context, MaterialPageRoute(builder: (_) => const NotificationScreen()));
                   },
@@ -171,7 +171,7 @@ class ProfileScreen extends ConsumerWidget {
                 _buildProfileItem(
                   context,
                   icon: Icons.help_outline_rounded,
-                  title: 'Help & Support',
+                  title: AppLocalizations.of(context)!.helpSupport,
                   onTap: () {
                     Navigator.push(context, MaterialPageRoute(builder: (_) => const HelpSupportScreen()));
                   },

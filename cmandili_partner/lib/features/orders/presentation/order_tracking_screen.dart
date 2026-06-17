@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:cmandili_partner/l10n/app_localizations.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/utils/currency_formatter.dart';
 import '../../../core/widgets/app_map.dart';
@@ -37,8 +38,8 @@ class _OrderTrackingScreenState extends ConsumerState<OrderTrackingScreen> {
 
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Recipient confirmed delivery! Order completed.'),
+        SnackBar(
+          content: Text(AppLocalizations.of(context)!.recipientConfirmed),
           backgroundColor: AppColors.success,
         ),
       );
@@ -51,6 +52,7 @@ class _OrderTrackingScreenState extends ConsumerState<OrderTrackingScreen> {
     final orderAsync = ref.watch(orderStreamProvider(widget.order.id));
     final currentOrder = orderAsync.valueOrNull ?? widget.order;
     final isCourier = currentOrder.type == OrderType.courier;
+    final l = AppLocalizations.of(context)!;
 
     return Scaffold(
       body: Stack(
@@ -188,7 +190,7 @@ class _OrderTrackingScreenState extends ConsumerState<OrderTrackingScreen> {
                         child: ElevatedButton.icon(
                           onPressed: () => _confirmReceipt(currentOrder),
                           icon: const Icon(Icons.check_circle_outline),
-                          label: const Text('Confirm Recipient Accepted'),
+                          label: Text(l.confirmRecipientAccepted),
                           style: ElevatedButton.styleFrom(
                             backgroundColor: AppColors.secondary,
                             foregroundColor: Colors.white,
@@ -209,14 +211,14 @@ class _OrderTrackingScreenState extends ConsumerState<OrderTrackingScreen> {
                           borderRadius: BorderRadius.circular(12),
                           border: Border.all(color: AppColors.success),
                         ),
-                        child: const Row(
+                        child: Row(
                           children: [
-                            Icon(Icons.check_circle, color: AppColors.success),
-                            SizedBox(width: 8),
+                            const Icon(Icons.check_circle, color: AppColors.success),
+                            const SizedBox(width: 8),
                             Expanded(
                               child: Text(
-                                'Recipient has accepted the package',
-                                style: TextStyle(
+                                l.recipientAccepted,
+                                style: const TextStyle(
                                   color: AppColors.success,
                                   fontWeight: FontWeight.bold,
                                 ),
@@ -238,9 +240,9 @@ class _OrderTrackingScreenState extends ConsumerState<OrderTrackingScreen> {
                     if ((currentOrder.status == OrderStatus.onTheWay ||
                             currentOrder.status == OrderStatus.pickedUp) &&
                         currentOrder.driverName != null) ...[
-                      const Text(
-                        'Your Courier',
-                        style: TextStyle(
+                      Text(
+                        l.yourCourier,
+                        style: const TextStyle(
                           fontSize: 18,
                           fontWeight: FontWeight.bold,
                         ),
@@ -300,7 +302,7 @@ class _OrderTrackingScreenState extends ConsumerState<OrderTrackingScreen> {
 
                     // Order Details
                     Text(
-                      isCourier ? 'Package Details' : 'Order Details',
+                      isCourier ? l.packageDetails : l.orderDetailsHeader,
                       style: const TextStyle(
                         fontSize: 18,
                         fontWeight: FontWeight.bold,
@@ -310,15 +312,15 @@ class _OrderTrackingScreenState extends ConsumerState<OrderTrackingScreen> {
 
                     if (isCourier) ...[
                       _DetailRow(
-                          label: 'Recipient',
+                          label: l.recipient,
                           value: currentOrder.recipientName ?? 'N/A'),
                       _DetailRow(
-                          label: 'Phone',
+                          label: l.phone,
                           value: currentOrder.recipientPhone ?? 'N/A'),
                       _DetailRow(
-                          label: 'Item',
+                          label: l.item,
                           value:
-                              currentOrder.packageDescription ?? 'Package'),
+                              currentOrder.packageDescription ?? l.package),
                       const SizedBox(height: 16),
                     ] else ...[
                       Text(
@@ -357,9 +359,9 @@ class _OrderTrackingScreenState extends ConsumerState<OrderTrackingScreen> {
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        const Text(
-                          'Total',
-                          style: TextStyle(
+                        Text(
+                          l.total,
+                          style: const TextStyle(
                             fontSize: 18,
                             fontWeight: FontWeight.bold,
                           ),
@@ -419,7 +421,7 @@ class _OrderTrackingScreenState extends ConsumerState<OrderTrackingScreen> {
     if (number == null || number.isEmpty) {
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Driver phone not available yet')),
+        SnackBar(content: Text(AppLocalizations.of(context)!.driverPhoneNotAvailable)),
       );
       return;
     }
@@ -428,7 +430,7 @@ class _OrderTrackingScreenState extends ConsumerState<OrderTrackingScreen> {
       await launchUrl(uri);
     } else if (context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Unable to start phone call')),
+        SnackBar(content: Text(AppLocalizations.of(context)!.unableToStartCall)),
       );
     }
   }

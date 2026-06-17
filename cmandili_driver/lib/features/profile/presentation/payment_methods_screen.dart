@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/theme/app_colors.dart';
 import '../providers/payment_provider.dart';
+import 'package:cmandili_driver/l10n/app_localizations.dart';
 
 class PaymentMethodsScreen extends ConsumerWidget {
   const PaymentMethodsScreen({super.key});
@@ -10,9 +11,10 @@ class PaymentMethodsScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final payments = ref.watch(paymentProvider);
 
+    final l = AppLocalizations.of(context)!;
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Payment Methods', style: TextStyle(fontWeight: FontWeight.bold)),
+        title: Text(l.paymentMethods, style: const TextStyle(fontWeight: FontWeight.bold)),
         centerTitle: true,
         actions: [
           IconButton(
@@ -22,7 +24,7 @@ class PaymentMethodsScreen extends ConsumerWidget {
         ],
       ),
       body: payments.isEmpty
-          ? const Center(child: Text('No payment methods saved'))
+          ? Center(child: Text(l.noPaymentMethods))
           : ListView.builder(
               padding: const EdgeInsets.all(16),
               itemCount: payments.length,
@@ -117,48 +119,51 @@ class PaymentMethodsScreen extends ConsumerWidget {
 
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Add New Card'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: nameController,
-              decoration: const InputDecoration(labelText: 'Cardholder Name'),
+      builder: (ctx) {
+        final l = AppLocalizations.of(ctx)!;
+        return AlertDialog(
+          title: Text(l.addNewCard),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: nameController,
+                decoration: InputDecoration(labelText: l.cardholderName),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: numberController,
+                decoration: InputDecoration(labelText: l.cardNumber),
+                keyboardType: TextInputType.number,
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: expiryController,
+                decoration: InputDecoration(labelText: l.expiryDate),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: Text(l.cancel),
             ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: numberController,
-              decoration: const InputDecoration(labelText: 'Card Number'),
-              keyboardType: TextInputType.number,
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: expiryController,
-              decoration: const InputDecoration(labelText: 'Expiry Date (MM/YY)'),
+            ElevatedButton(
+              onPressed: () {
+                if (nameController.text.isNotEmpty && numberController.text.length >= 4) {
+                  ref.read(paymentProvider.notifier).addCard(
+                        nameController.text,
+                        numberController.text,
+                        expiryController.text,
+                      );
+                  Navigator.pop(ctx);
+                }
+              },
+              child: Text(l.save),
             ),
           ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              if (nameController.text.isNotEmpty && numberController.text.length >= 4) {
-                ref.read(paymentProvider.notifier).addCard(
-                      nameController.text,
-                      numberController.text,
-                      expiryController.text,
-                    );
-                Navigator.pop(context);
-              }
-            },
-            child: const Text('Save'),
-          ),
-        ],
-      ),
+        );
+      },
     );
   }
 }

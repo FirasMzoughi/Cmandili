@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:cmandili_partner/l10n/app_localizations.dart';
 import '../../../core/theme/app_colors.dart';
 import '../providers/menu_provider.dart';
 
@@ -95,9 +96,10 @@ class _HappyHourSetupScreenState extends ConsumerState<HappyHourSetupScreen> {
   Future<void> _activate() async {
     if (!_formKey.currentState!.validate()) return;
     if (_selectedEndTime == null) {
+      final l = AppLocalizations.of(context)!;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Please select an end date & time'),
+        SnackBar(
+          content: Text(l.selectEndDateTime),
           backgroundColor: AppColors.error,
           behavior: SnackBarBehavior.floating,
         ),
@@ -117,20 +119,21 @@ class _HappyHourSetupScreenState extends ConsumerState<HappyHourSetupScreen> {
 
     if (mounted) {
       setState(() => _isLoading = false);
+      final l = AppLocalizations.of(context)!;
       if (ok) {
         ref.invalidate(menuItemsProvider);
         Navigator.pop(context);
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Happy Hour activated! Customers can now see this deal.'),
+          SnackBar(
+            content: Text(l.happyHourActivated),
             backgroundColor: AppColors.success,
             behavior: SnackBarBehavior.floating,
           ),
         );
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Failed to activate Happy Hour. Try again.'),
+          SnackBar(
+            content: Text(l.happyHourFailed),
             backgroundColor: AppColors.error,
             behavior: SnackBarBehavior.floating,
           ),
@@ -146,11 +149,12 @@ class _HappyHourSetupScreenState extends ConsumerState<HappyHourSetupScreen> {
     if (mounted) {
       setState(() => _isLoading = false);
       if (ok) {
+        final l = AppLocalizations.of(context)!;
         ref.invalidate(menuItemsProvider);
         Navigator.pop(context);
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Happy Hour cleared.'),
+          SnackBar(
+            content: Text(l.happyHourCleared),
             behavior: SnackBarBehavior.floating,
           ),
         );
@@ -162,10 +166,11 @@ class _HappyHourSetupScreenState extends ConsumerState<HappyHourSetupScreen> {
   Widget build(BuildContext context) {
     final isActive = widget.currentDiscountPrice != null && widget.currentEndTime != null;
     final percent = _discountPercent;
+    final l = AppLocalizations.of(context)!;
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Happy Hour Setup'),
+        title: Text(l.happyHourSetup),
         backgroundColor: Colors.transparent,
         foregroundColor: AppColors.textPrimary,
         elevation: 0,
@@ -240,7 +245,7 @@ class _HappyHourSetupScreenState extends ConsumerState<HappyHourSetupScreen> {
 
               const SizedBox(height: 24),
 
-              Text('Discount Price (DT)',
+              Text(l.discountPriceDt,
                   style: Theme.of(context)
                       .textTheme
                       .titleMedium
@@ -265,7 +270,7 @@ class _HappyHourSetupScreenState extends ConsumerState<HappyHourSetupScreen> {
 
               const SizedBox(height: 20),
 
-              Text('End Date & Time',
+              Text(l.endDateTime,
                   style: Theme.of(context)
                       .textTheme
                       .titleMedium
@@ -296,7 +301,7 @@ class _HappyHourSetupScreenState extends ConsumerState<HappyHourSetupScreen> {
                       Text(
                         _selectedEndTime != null
                             ? _formatDateTime(_selectedEndTime!)
-                            : 'Tap to select end date & time',
+                            : l.tapSelectEndDateTime,
                         style: TextStyle(
                           color: _selectedEndTime != null
                               ? AppColors.textPrimary
@@ -313,7 +318,7 @@ class _HappyHourSetupScreenState extends ConsumerState<HappyHourSetupScreen> {
 
               const SizedBox(height: 20),
 
-              Text('Available Units (optional)',
+              Text(l.availableUnitsOptional,
                   style: Theme.of(context)
                       .textTheme
                       .titleMedium
@@ -323,7 +328,7 @@ class _HappyHourSetupScreenState extends ConsumerState<HappyHourSetupScreen> {
                 controller: _quantityController,
                 keyboardType: TextInputType.number,
                 decoration: _inputDecoration(
-                    hint: 'Leave blank for unlimited', icon: Icons.inventory_2_rounded),
+                    hint: l.leaveBlankUnlimited, icon: Icons.inventory_2_rounded),
               ),
 
               const SizedBox(height: 32),
@@ -341,8 +346,8 @@ class _HappyHourSetupScreenState extends ConsumerState<HappyHourSetupScreen> {
                           child: CircularProgressIndicator(
                               color: Colors.white, strokeWidth: 2))
                       : const Icon(Icons.local_fire_department_rounded),
-                  label: const Text('Activate Happy Hour',
-                      style: TextStyle(fontWeight: FontWeight.w700, fontSize: 15)),
+                  label: Text(l.activateHappyHour,
+                      style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15)),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: AppColors.secondary,
                     foregroundColor: Colors.white,
@@ -362,8 +367,8 @@ class _HappyHourSetupScreenState extends ConsumerState<HappyHourSetupScreen> {
                   child: OutlinedButton.icon(
                     onPressed: _isLoading ? null : _clear,
                     icon: const Icon(Icons.cancel_outlined),
-                    label: const Text('Clear Happy Hour',
-                        style: TextStyle(fontWeight: FontWeight.w700)),
+                    label: Text(l.clearHappyHour,
+                        style: const TextStyle(fontWeight: FontWeight.w700)),
                     style: OutlinedButton.styleFrom(
                       foregroundColor: AppColors.error,
                       side: const BorderSide(color: AppColors.error, width: 1.5),

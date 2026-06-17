@@ -1,7 +1,8 @@
 {
   "permissions": {
     "allow": [
-      "Bash(command -v pandoc)"
+      "Bash(command -v pandoc)",
+      "Bash(flutter gen-l10n *)"
     ]
   }
 }
