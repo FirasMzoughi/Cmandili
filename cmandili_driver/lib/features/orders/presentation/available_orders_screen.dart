@@ -208,8 +208,100 @@ class _OrderCard extends ConsumerWidget {
             ),
             const SizedBox(height: 12),
 
-            // Customer (name + tap-to-call)
-            if (cname != null || cphone != null) ...[
+            // Bill payment (facture) orders
+            if (order.type == OrderType.billPayment || order.type == OrderType.facture) ...[
+              _BillTypeBadge(billType: order.billType),
+              const SizedBox(height: 8),
+              if (order.billReference != null && order.billReference!.isNotEmpty)
+                _InfoRow(
+                  icon: Icons.tag_rounded,
+                  label: 'Réf.',
+                  value: order.billReference!,
+                ),
+              if (order.billAmount != null) ...[
+                const SizedBox(height: 4),
+                _InfoRow(
+                  icon: Icons.payments_outlined,
+                  label: 'Montant à collecter',
+                  value: '${order.billAmount!.toStringAsFixed(3)} TND',
+                  valueStyle: const TextStyle(
+                    color: Colors.deepOrange,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 14,
+                  ),
+                ),
+              ],
+              if (order.senderPhone != null && order.senderPhone!.isNotEmpty) ...[
+                const SizedBox(height: 4),
+                _PhoneRow(
+                  label: 'Client',
+                  icon: Icons.person_outline,
+                  phone: order.senderPhone,
+                ),
+              ],
+              if (order.pickupAddress != null) ...[
+                const SizedBox(height: 4),
+                _InfoRow(
+                  icon: Icons.home_outlined,
+                  label: '1. Chez le client',
+                  value: order.pickupAddress!.fullAddress.isNotEmpty
+                      ? order.pickupAddress!.fullAddress
+                      : order.pickupAddress!.label,
+                ),
+              ],
+              const SizedBox(height: 4),
+              _InfoRow(
+                icon: Icons.business_outlined,
+                label: '2. Bureau de paiement',
+                value: order.deliveryAddress.fullAddress.isNotEmpty
+                    ? order.deliveryAddress.fullAddress
+                    : order.deliveryAddress.label,
+              ),
+              const SizedBox(height: 8),
+            ] else if (order.type == OrderType.courier) ...[
+              _PhoneRow(
+                label: 'Expéditeur',
+                icon: Icons.upload_rounded,
+                phone: order.senderPhone,
+              ),
+              const SizedBox(height: 6),
+              _PhoneRow(
+                label: 'Destinataire',
+                icon: Icons.download_rounded,
+                phone: order.recipientPhone,
+              ),
+              if (order.pickupAddress != null) ...[
+                const SizedBox(height: 8),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Icon(Icons.upload_rounded, size: 16, color: AppColors.textLight),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        order.pickupAddress!.fullAddress.isNotEmpty
+                            ? order.pickupAddress!.fullAddress
+                            : order.pickupAddress!.label,
+                        style: const TextStyle(
+                          color: AppColors.textSecondary,
+                          fontSize: 13,
+                        ),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+              // Package photo (if provided by the customer)
+              if (order.packagePhotoUrl != null &&
+                  order.packagePhotoUrl!.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                _PackagePhoto(url: order.packagePhotoUrl!),
+              ],
+              const SizedBox(height: 8),
+            ] else if (cname != null || cphone != null) ...[
+              // Food orders: customer name + phone
               Row(
                 children: [
                   const Icon(Icons.person_outline, size: 18, color: AppColors.textLight),
@@ -226,37 +318,7 @@ class _OrderCard extends ConsumerWidget {
                     ),
                   ),
                   if (cphone != null)
-                    InkWell(
-                      onTap: () async {
-                        final uri = Uri(scheme: 'tel', path: cphone);
-                        if (await canLaunchUrl(uri)) {
-                          await launchUrl(uri);
-                        }
-                      },
-                      borderRadius: BorderRadius.circular(8),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                        decoration: BoxDecoration(
-                          color: AppColors.success.withValues(alpha: 0.12),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            const Icon(Icons.phone, size: 14, color: AppColors.success),
-                            const SizedBox(width: 4),
-                            Text(
-                              cphone,
-                              style: const TextStyle(
-                                color: AppColors.success,
-                                fontWeight: FontWeight.w600,
-                                fontSize: 13,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
+                    _CallButton(phone: cphone),
                 ],
               ),
               const SizedBox(height: 8),
@@ -332,6 +394,196 @@ class _OrderCard extends ConsumerWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+// ── Shared helper widgets ────────────────────────────────────────────────────
+
+class _CallButton extends StatelessWidget {
+  final String phone;
+  const _CallButton({required this.phone});
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: () async {
+        final uri = Uri(scheme: 'tel', path: phone);
+        if (await canLaunchUrl(uri)) await launchUrl(uri);
+      },
+      borderRadius: BorderRadius.circular(8),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+        decoration: BoxDecoration(
+          color: AppColors.success.withValues(alpha: 0.12),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.phone, size: 14, color: AppColors.success),
+            const SizedBox(width: 4),
+            Text(
+              phone,
+              style: const TextStyle(
+                color: AppColors.success,
+                fontWeight: FontWeight.w600,
+                fontSize: 13,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _PackagePhoto extends StatelessWidget {
+  final String url;
+  const _PackagePhoto({required this.url});
+
+  @override
+  Widget build(BuildContext context) {
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(10),
+      child: Image.network(
+        url,
+        height: 120,
+        width: double.infinity,
+        fit: BoxFit.cover,
+        loadingBuilder: (_, child, progress) => progress == null
+            ? child
+            : Container(
+                height: 120,
+                color: Colors.grey.shade100,
+                child: const Center(
+                  child: SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
+                ),
+              ),
+        errorBuilder: (_, __, ___) => Container(
+          height: 60,
+          color: Colors.grey.shade100,
+          child: const Center(
+            child: Icon(Icons.broken_image_outlined, color: Colors.grey),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _BillTypeBadge extends StatelessWidget {
+  final String? billType;
+  const _BillTypeBadge({this.billType});
+
+  @override
+  Widget build(BuildContext context) {
+    final (label, icon, color) = switch (billType?.toLowerCase()) {
+      'topnet' => ('Topnet', Icons.wifi_rounded, Colors.blue),
+      'steg'   => ('STEG', Icons.bolt_rounded, Colors.amber.shade700),
+      'sonede' => ('SONEDE', Icons.water_drop_rounded, Colors.teal),
+      _        => ('Autre', Icons.receipt_long_rounded, Colors.grey),
+    };
+    return Row(
+      children: [
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+          decoration: BoxDecoration(
+            color: color.withValues(alpha: 0.12),
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: color.withValues(alpha: 0.4)),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, size: 14, color: color),
+              const SizedBox(width: 4),
+              Text(
+                label,
+                style: TextStyle(
+                  color: color,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 13,
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(width: 8),
+        const Text(
+          'Paiement de facture',
+          style: TextStyle(color: AppColors.textSecondary, fontSize: 13),
+        ),
+      ],
+    );
+  }
+}
+
+class _InfoRow extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final String value;
+  final TextStyle? valueStyle;
+
+  const _InfoRow({
+    required this.icon,
+    required this.label,
+    required this.value,
+    this.valueStyle,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(icon, size: 15, color: AppColors.textLight),
+        const SizedBox(width: 6),
+        Text(
+          '$label: ',
+          style: const TextStyle(color: AppColors.textSecondary, fontSize: 13),
+        ),
+        Expanded(
+          child: Text(
+            value,
+            style: valueStyle ??
+                const TextStyle(color: AppColors.textPrimary, fontSize: 13),
+            overflow: TextOverflow.ellipsis,
+            maxLines: 2,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _PhoneRow extends StatelessWidget {
+  final String label;
+  final IconData icon;
+  final String? phone;
+
+  const _PhoneRow({required this.label, required this.icon, this.phone});
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Icon(icon, size: 16, color: AppColors.textLight),
+        const SizedBox(width: 6),
+        Text(
+          label,
+          style: const TextStyle(color: AppColors.textSecondary, fontSize: 13),
+        ),
+        const SizedBox(width: 8),
+        if (phone != null && phone!.isNotEmpty)
+          _CallButton(phone: phone!)
+        else
+          const Text('—', style: TextStyle(color: AppColors.textLight, fontSize: 13)),
+      ],
     );
   }
 }

@@ -98,10 +98,17 @@ class OrderRepository {
       'pickupAddress': dbJson['pickup_address'],
       'recipientName': dbJson['recipient_name'],
       'recipientPhone': dbJson['recipient_phone'],
+      'senderPhone': dbJson['sender_phone'],
       'packageDescription': dbJson['package_description'],
+      'packagePhotoUrl': dbJson['package_photo_url'],
       'isRecipientAccepted': false,
       'customerName': dbJson['customer_name'],
       'customerPhone': dbJson['customer_phone'],
+      'billType': dbJson['bill_type'],
+      'billReference': dbJson['bill_reference'],
+      'billAmount': dbJson['bill_amount'] != null ? (dbJson['bill_amount'] as num).toDouble() : null,
+      'billPhotoUrl': dbJson['bill_photo_url'],
+      'receiptPhotoUrl': dbJson['bill_receipt_url'],
     };
   }
 }
