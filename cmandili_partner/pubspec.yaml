@@ -26,9 +26,8 @@ dependencies:
   # sign_in_with_apple: ^5.0.0
   supabase_flutter: ^2.3.0
   
-  # Maps & Location (only used in order_tracking_screen)
+  # Maps (only used in order_tracking_screen)
   mapbox_maps_flutter: ^2.3.0
-  geolocator: ^10.1.0
 
   # UI & Images
   cached_network_image: ^3.3.0
@@ -68,7 +67,7 @@ dev_dependencies:
 flutter_launcher_icons:
   android: "launcher_icon"
   ios: true
-  image_path: "assets/images/logo_partner.png"
+  image_path: "assets/branding/logo_partner.png"
   min_sdk_android: 21 # android min sdk min:16, default 21
 
 flutter:

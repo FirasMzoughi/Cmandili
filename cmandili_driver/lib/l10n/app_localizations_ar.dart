@@ -44,6 +44,9 @@ class AppLocalizationsAr extends AppLocalizations {
   String get passwordLength => 'كلمة المرور يجب أن تكون 6 أحرف على الأقل';
 
   @override
+  String get phoneInvalid => 'يرجى إدخال رقم هاتف صحيح من 8 أرقام';
+
+  @override
   String get settings => 'الإعدادات';
 
   @override

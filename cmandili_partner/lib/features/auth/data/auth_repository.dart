@@ -64,12 +64,13 @@ class AuthRepository {
     return User.fromSupabase(user);
   }
 
-  // Sign up with email, password, name, and partner type
+  // Sign up with email, password, name, partner type, and phone
   Future<User?> signUpWithEmail(
     String email,
     String password,
     String name,
     String partnerType,
+    String phone,
   ) async {
     final response = await _supabase.auth.signUp(
       email: email,
@@ -91,12 +92,13 @@ class AuthRepository {
           .single();
       final entityId = entityRow['id'] as String;
 
-      // 2. Upsert into partners table with real entity_id (safe on retry)
+      // 2. Upsert into partners table with real entity_id and phone
       await _supabase.from('partners').upsert({
         'user_id': user.id,
         'partner_type': partnerType,
         'business_name': name,
         'entity_id': entityId,
+        if (phone.isNotEmpty) 'phone': phone,
       }, onConflict: 'user_id');
     } catch (e) {
       // Partners table insert failed — non-blocking, profile can be created later

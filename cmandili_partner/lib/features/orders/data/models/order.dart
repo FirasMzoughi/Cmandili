@@ -54,6 +54,10 @@ class Order {
   final String? customerName;
   final String? customerPhone;
 
+  // Self-delivery fields set when no driver accepts the waterfall.
+  final bool selfDelivery;
+  final DateTime? noDriverNotifiedAt;
+
   Order({
     required this.id,
     required this.userId,
@@ -82,6 +86,8 @@ class Order {
     this.isRecipientAccepted = false,
     this.customerName,
     this.customerPhone,
+    this.selfDelivery = false,
+    this.noDriverNotifiedAt,
   });
 
   factory Order.fromJson(Map<String, dynamic> json) {
@@ -126,6 +132,10 @@ class Order {
       isRecipientAccepted: json['isRecipientAccepted'] ?? false,
       customerName: json['customerName'] as String?,
       customerPhone: json['customerPhone'] as String?,
+      selfDelivery: json['selfDelivery'] as bool? ?? false,
+      noDriverNotifiedAt: json['noDriverNotifiedAt'] != null
+          ? DateTime.tryParse(json['noDriverNotifiedAt'] as String)
+          : null,
     );
   }
 

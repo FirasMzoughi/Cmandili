@@ -44,6 +44,30 @@ class AppLocalizationsEn extends AppLocalizations {
   String get passwordLength => 'Password must be at least 6 characters';
 
   @override
+  String get phoneNumberLabel => 'Phone Number';
+
+  @override
+  String get phoneInvalid => 'Please enter a valid 8-digit phone number';
+
+  @override
+  String get defaultHours => 'Default Hours';
+
+  @override
+  String get enableAutoClose => 'Auto-close at closing time';
+
+  @override
+  String get openingTimeLabel => 'Opening time';
+
+  @override
+  String get closingTimeLabel => 'Closing time';
+
+  @override
+  String get notSet => 'Not set';
+
+  @override
+  String get scheduleSaved => 'Schedule saved';
+
+  @override
   String get settings => 'Settings';
 
   @override

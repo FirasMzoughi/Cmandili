@@ -44,6 +44,30 @@ class AppLocalizationsAr extends AppLocalizations {
   String get passwordLength => 'كلمة المرور يجب أن تكون 6 أحرف على الأقل';
 
   @override
+  String get phoneNumberLabel => 'رقم الهاتف';
+
+  @override
+  String get phoneInvalid => 'يرجى إدخال رقم هاتف صحيح من 8 أرقام';
+
+  @override
+  String get defaultHours => 'ساعات العمل الافتراضية';
+
+  @override
+  String get enableAutoClose => 'الإغلاق التلقائي عند انتهاء وقت العمل';
+
+  @override
+  String get openingTimeLabel => 'وقت الفتح';
+
+  @override
+  String get closingTimeLabel => 'وقت الإغلاق';
+
+  @override
+  String get notSet => 'غير محدد';
+
+  @override
+  String get scheduleSaved => 'تم حفظ الجدول';
+
+  @override
   String get settings => 'الإعدادات';
 
   @override

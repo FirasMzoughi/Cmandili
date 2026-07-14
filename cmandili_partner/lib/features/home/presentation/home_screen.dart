@@ -20,6 +20,90 @@ final _shopOpenProvider = StateNotifierProvider<_ShopOpenNotifier, bool?>((ref) 
   return _ShopOpenNotifier(ref);
 });
 
+// ── Operating-hours schedule ──────────────────────────────────────────────────
+
+class _ScheduleSettings {
+  final bool autoCloseEnabled;
+  final TimeOfDay? openingTime;
+  final TimeOfDay? closingTime;
+
+  const _ScheduleSettings({
+    this.autoCloseEnabled = false,
+    this.openingTime,
+    this.closingTime,
+  });
+
+  _ScheduleSettings withAutoClose(bool v) =>
+      _ScheduleSettings(autoCloseEnabled: v, openingTime: openingTime, closingTime: closingTime);
+  _ScheduleSettings withOpeningTime(TimeOfDay? v) =>
+      _ScheduleSettings(autoCloseEnabled: autoCloseEnabled, openingTime: v, closingTime: closingTime);
+  _ScheduleSettings withClosingTime(TimeOfDay? v) =>
+      _ScheduleSettings(autoCloseEnabled: autoCloseEnabled, openingTime: openingTime, closingTime: v);
+}
+
+final _scheduleProvider =
+    StateNotifierProvider<_ScheduleNotifier, _ScheduleSettings>((ref) {
+  return _ScheduleNotifier(ref);
+});
+
+class _ScheduleNotifier extends StateNotifier<_ScheduleSettings> {
+  final Ref _ref;
+  _ScheduleNotifier(this._ref) : super(const _ScheduleSettings()) { _init(); }
+
+  Future<void> _init() async {
+    final profile = await _ref.read(partnerProfileProvider.future);
+    if (profile == null || !mounted) return;
+    final table = profile.partnerType == 'restaurant' ? 'restaurants' : 'supermarkets';
+    try {
+      final row = await Supabase.instance.client
+          .from(table)
+          .select('auto_close_enabled, opening_time, closing_time')
+          .eq('id', profile.entityId)
+          .single();
+      if (!mounted) return;
+      state = _ScheduleSettings(
+        autoCloseEnabled: row['auto_close_enabled'] as bool? ?? false,
+        openingTime: _parseTime(row['opening_time'] as String?),
+        closingTime: _parseTime(row['closing_time'] as String?),
+      );
+    } catch (_) {}
+  }
+
+  static TimeOfDay? _parseTime(String? raw) {
+    if (raw == null || raw.isEmpty) return null;
+    final parts = raw.split(':');
+    if (parts.length < 2) return null;
+    return TimeOfDay(hour: int.parse(parts[0]), minute: int.parse(parts[1]));
+  }
+
+  static String _formatTime(TimeOfDay t) =>
+      '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}:00';
+
+  Future<void> _save(String entityId, String partnerType) async {
+    final table = partnerType == 'restaurant' ? 'restaurants' : 'supermarkets';
+    await Supabase.instance.client.from(table).update({
+      'auto_close_enabled': state.autoCloseEnabled,
+      'opening_time': state.openingTime != null ? _formatTime(state.openingTime!) : null,
+      'closing_time': state.closingTime != null ? _formatTime(state.closingTime!) : null,
+    }).eq('id', entityId);
+  }
+
+  Future<void> setAutoClose(bool value, String entityId, String partnerType) async {
+    state = state.withAutoClose(value);
+    await _save(entityId, partnerType);
+  }
+
+  Future<void> setOpeningTime(TimeOfDay time, String entityId, String partnerType) async {
+    state = state.withOpeningTime(time);
+    await _save(entityId, partnerType);
+  }
+
+  Future<void> setClosingTime(TimeOfDay time, String entityId, String partnerType) async {
+    state = state.withClosingTime(time);
+    await _save(entityId, partnerType);
+  }
+}
+
 class _ShopOpenNotifier extends StateNotifier<bool?> {
   final Ref _ref;
   _ShopOpenNotifier(this._ref) : super(null) { _init(); }
@@ -43,6 +127,166 @@ class _ShopOpenNotifier extends StateNotifier<bool?> {
         .from(table).update({'is_open': next}).eq('id', entityId);
   }
 }
+
+// ── Schedule UI widget ────────────────────────────────────────────────────────
+
+class _ScheduleSection extends ConsumerStatefulWidget {
+  final dynamic profile; // PartnerProfile
+  const _ScheduleSection({required this.profile});
+
+  @override
+  ConsumerState<_ScheduleSection> createState() => _ScheduleSectionState();
+}
+
+class _ScheduleSectionState extends ConsumerState<_ScheduleSection> {
+  bool _saving = false;
+  String? _savedMsg;
+
+  Future<void> _pickTime({required bool isClosing}) async {
+    final schedule = ref.read(_scheduleProvider);
+    final initial = isClosing ? (schedule.closingTime ?? TimeOfDay.now()) : (schedule.openingTime ?? TimeOfDay.now());
+    final picked = await showTimePicker(context: context, initialTime: initial);
+    if (!mounted || picked == null) return;
+    setState(() => _saving = true);
+    try {
+      if (isClosing) {
+        await ref.read(_scheduleProvider.notifier).setClosingTime(picked, widget.profile.entityId as String, widget.profile.partnerType as String);
+      } else {
+        await ref.read(_scheduleProvider.notifier).setOpeningTime(picked, widget.profile.entityId as String, widget.profile.partnerType as String);
+      }
+      if (mounted) {
+        setState(() { _saving = false; _savedMsg = AppLocalizations.of(context)!.scheduleSaved; });
+        Future.delayed(const Duration(seconds: 2), () { if (mounted) setState(() => _savedMsg = null); });
+      }
+    } catch (_) {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  String _formatTime(TimeOfDay t) =>
+      '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';
+
+  @override
+  Widget build(BuildContext context) {
+    final schedule = ref.watch(_scheduleProvider);
+    final l = AppLocalizations.of(context)!;
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Theme.of(context).cardColor,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AppColors.textLight.withValues(alpha: 0.15)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Header row: title + enable switch
+          Row(
+            children: [
+              Container(
+                width: 32, height: 32,
+                decoration: BoxDecoration(
+                  color: AppColors.primary.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Icon(Icons.schedule_rounded, size: 18, color: AppColors.primary),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(l.defaultHours,
+                        style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+                    Text(l.enableAutoClose,
+                        style: TextStyle(fontSize: 11, color: AppColors.textSecondary)),
+                  ],
+                ),
+              ),
+              Switch.adaptive(
+                value: schedule.autoCloseEnabled,
+                activeColor: AppColors.primary,
+                onChanged: (v) => ref.read(_scheduleProvider.notifier)
+                    .setAutoClose(v, widget.profile.entityId as String, widget.profile.partnerType as String),
+              ),
+            ],
+          ),
+
+          // Time rows — only shown when auto-close is enabled
+          if (schedule.autoCloseEnabled) ...[
+            const SizedBox(height: 12),
+            const Divider(height: 1),
+            const SizedBox(height: 12),
+            _buildTimeRow(
+              icon: Icons.wb_sunny_outlined,
+              label: l.openingTimeLabel,
+              time: schedule.openingTime,
+              onTap: () => _pickTime(isClosing: false),
+              notSetLabel: l.notSet,
+            ),
+            const SizedBox(height: 8),
+            _buildTimeRow(
+              icon: Icons.nights_stay_outlined,
+              label: l.closingTimeLabel,
+              time: schedule.closingTime,
+              onTap: () => _pickTime(isClosing: true),
+              notSetLabel: l.notSet,
+            ),
+            if (_saving) ...[
+              const SizedBox(height: 8),
+              const Center(child: SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2))),
+            ] else if (_savedMsg != null) ...[
+              const SizedBox(height: 8),
+              Center(
+                child: Text(_savedMsg!,
+                    style: const TextStyle(fontSize: 11, color: AppColors.success)),
+              ),
+            ],
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTimeRow({
+    required IconData icon,
+    required String label,
+    required TimeOfDay? time,
+    required VoidCallback onTap,
+    required String notSetLabel,
+  }) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        decoration: BoxDecoration(
+          color: AppColors.background,
+          borderRadius: BorderRadius.circular(10),
+        ),
+        child: Row(
+          children: [
+            Icon(icon, size: 16, color: AppColors.textSecondary),
+            const SizedBox(width: 10),
+            Expanded(child: Text(label, style: const TextStyle(fontSize: 13))),
+            Text(
+              time != null ? _formatTime(time) : notSetLabel,
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: time != null ? AppColors.primary : AppColors.textSecondary,
+              ),
+            ),
+            const SizedBox(width: 6),
+            const Icon(Icons.edit_outlined, size: 14, color: AppColors.textSecondary),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 
 class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
@@ -438,6 +682,21 @@ class _DashboardTab extends ConsumerWidget {
                     ],
                   ),
                 );
+              },
+              loading: () => const SizedBox.shrink(),
+              error: (_, __) => const SizedBox.shrink(),
+            ),
+          ),
+        ),
+
+        // Operating hours schedule — optional, placed directly below the manual toggle
+        SliverToBoxAdapter(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
+            child: profileAsync.when(
+              data: (profile) {
+                if (profile == null) return const SizedBox.shrink();
+                return _ScheduleSection(profile: profile);
               },
               loading: () => const SizedBox.shrink(),
               error: (_, __) => const SizedBox.shrink(),

@@ -45,6 +45,31 @@ class AppLocalizationsFr extends AppLocalizations {
       'Le mot de passe doit contenir au moins 6 caractères';
 
   @override
+  String get phoneNumberLabel => 'Numéro de téléphone';
+
+  @override
+  String get phoneInvalid =>
+      'Veuillez entrer un numéro de téléphone valide à 8 chiffres';
+
+  @override
+  String get defaultHours => 'Horaires par défaut';
+
+  @override
+  String get enableAutoClose => 'Fermeture automatique à l\'heure de clôture';
+
+  @override
+  String get openingTimeLabel => 'Heure d\'ouverture';
+
+  @override
+  String get closingTimeLabel => 'Heure de fermeture';
+
+  @override
+  String get notSet => 'Non configuré';
+
+  @override
+  String get scheduleSaved => 'Horaires enregistrés';
+
+  @override
   String get settings => 'Paramètres';
 
   @override

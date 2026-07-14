@@ -1,9 +1,9 @@
 import 'package:flutter/foundation.dart';
-import 'dart:typed_data';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'notification_navigation.dart';
 
 // ── Channel IDs ──────────────────────────────────────────────────────────────
 // Standard order-status updates (confirmed, preparing, etc.)
@@ -171,6 +171,15 @@ class PushService {
     // Register the same top-level handler used for background.
     FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
 
+    // ── Notification-tap deep-linking ────────────────────────────────────────
+    // These fire for taps on a real FCM `notification` payload. The native
+    // killed-app alarm (CmandiliMessagingService) is data-only, so its taps
+    // route through MainActivity's intent extras instead (see
+    // NotificationNavigation). Handling both keeps every path covered.
+    FirebaseMessaging.onMessageOpenedApp.listen(_onNotificationTap);
+    final initialMessage = await _fcm.getInitialMessage();
+    if (initialMessage != null) _onNotificationTap(initialMessage);
+
     await _registerToken();
     _fcm.onTokenRefresh.listen((_) => _registerToken());
 
@@ -247,6 +256,17 @@ class PushService {
         ),
       ),
     );
+  }
+
+  // ── Notification-tap handler ────────────────────────────────────────────
+  // Fired when the partner taps an FCM `notification`-payload notification
+  // (background tap → onMessageOpenedApp, terminated tap → getInitialMessage).
+  // Deep-links to the order's detail screen.
+  void _onNotificationTap(RemoteMessage message) {
+    final orderId = message.data['order_id'] as String?;
+    if (orderId != null && orderId.isNotEmpty) {
+      NotificationNavigation.instance.openOrder(orderId);
+    }
   }
 
   // ── Cancel alarm notification ───────────────────────────────────────────

@@ -16,6 +16,7 @@ import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
 import 'core/config/supabase_config.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'core/push/push_service.dart';
+import 'core/push/notification_navigation.dart';
 import 'firebase_options.dart';
 
 void main() async {
@@ -49,6 +50,9 @@ void main() async {
   // listener) off the critical path so it doesn't stall first frame.
   WidgetsBinding.instance.addPostFrameCallback((_) {
     PushService.instance.initialize().catchError((_) {});
+    // Wire notification-tap deep-linking and drain any cold-start tap that
+    // launched the app onto a specific order.
+    NotificationNavigation.instance.initialize();
   });
 }
 
@@ -63,6 +67,7 @@ class MyApp extends ConsumerWidget {
 
     return MaterialApp(
       title: 'Cmandili Partner',
+      navigatorKey: NotificationNavigation.instance.navigatorKey,
       debugShowCheckedModeBanner: false,
       theme: AppTheme.lightTheme,
       darkTheme: AppTheme.darkTheme,

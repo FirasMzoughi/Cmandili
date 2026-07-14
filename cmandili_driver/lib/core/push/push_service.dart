@@ -1,6 +1,6 @@
 import 'dart:async';
-import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -118,7 +118,26 @@ class PushService {
   final _local = FlutterLocalNotificationsPlugin();
   bool _initialized = false;
 
-  final _offerController = StreamController<OrderOffer>.broadcast();
+  // Bridges native killed-app offer notification taps (order_id intent extra)
+  // from MainActivity into Dart.
+  static const _notifChannel =
+      MethodChannel('com.cmandili.driver/notifications');
+
+  // Holds a cold-start offer (from a killed-app notification tap) that arrived
+  // before the home screen subscribed to offerStream. Replayed on subscribe so
+  // the accept/reject dialog isn't lost to the broadcast stream's no-replay.
+  OrderOffer? _pendingOffer;
+
+  late final StreamController<OrderOffer> _offerController =
+      StreamController<OrderOffer>.broadcast(
+    onListen: () {
+      final pending = _pendingOffer;
+      if (pending != null) {
+        _pendingOffer = null;
+        _offerController.add(pending);
+      }
+    },
+  );
 
   /// Emits when an FCM `offer_to_driver` message arrives while the app is in
   /// the FOREGROUND. The home screen shows an accept/reject modal.
@@ -186,6 +205,31 @@ class PushService {
 
     FirebaseMessaging.onMessage.listen(_onForegroundMessage);
     FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
+
+    // ── Offer-tap deep-linking ───────────────────────────────────────────────
+    // Surfaces the accept/reject dialog (via offerStream) when the driver taps
+    // an offer notification.
+    //   - Native killed-app alarm (data-only) → MainActivity intent extras over
+    //     the MethodChannel below.
+    //   - Real FCM `notification`-payload tap → onMessageOpenedApp /
+    //     getInitialMessage.
+    _notifChannel.setMethodCallHandler((call) async {
+      if (call.method == 'onNotificationTap') {
+        _emitOffer(call.arguments as String?); // warm: app already running
+      }
+    });
+    FirebaseMessaging.onMessageOpenedApp.listen(_onOfferTap);
+    final initialMessage = await _fcm.getInitialMessage();
+    if (initialMessage != null) _onOfferTap(initialMessage);
+    // Cold start from the native alarm: ask MainActivity if this launch came
+    // from an offer tap. getInitialMessage() is null on that path.
+    try {
+      final orderId =
+          await _notifChannel.invokeMethod<String>('getInitialNotification');
+      _emitOffer(orderId);
+    } on PlatformException {
+      // Channel unavailable (e.g. iOS) — ignore.
+    }
 
     await _registerToken();
     _fcm.onTokenRefresh.listen((_) => _registerToken());
@@ -282,6 +326,31 @@ class PushService {
         iOS: DarwinNotificationDetails(),
       ),
     );
+  }
+
+  // ── Offer-tap handlers ───────────────────────────────────────────────────
+
+  // Re-emits a tapped offer onto offerStream so the home-screen listener shows
+  // the accept/reject dialog — the same path used for foreground offers.
+  //
+  // On cold start the home screen may not have subscribed yet (auth/vehicle
+  // gating runs first), so if there's no listener we stash the offer and the
+  // controller's onListen replays it once the home screen subscribes.
+  void _emitOffer(String? orderId) {
+    if (orderId == null || orderId.isEmpty) return;
+    final offer = OrderOffer(orderId: orderId, receivedAt: DateTime.now());
+    if (_offerController.hasListener) {
+      _offerController.add(offer);
+    } else {
+      _pendingOffer = offer;
+    }
+  }
+
+  // Fired when the driver taps a real FCM `notification`-payload offer
+  // (background tap → onMessageOpenedApp, terminated tap → getInitialMessage).
+  void _onOfferTap(RemoteMessage message) {
+    if (message.data['event'] != 'offer_to_driver') return;
+    _emitOffer(message.data['order_id'] as String?);
   }
 
   // ── Cancel alarm notification ───────────────────────────────────────────

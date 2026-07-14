@@ -44,6 +44,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get passwordLength => 'Password must be at least 6 characters';
 
   @override
+  String get phoneInvalid => 'Please enter a valid 8-digit phone number';
+
+  @override
   String get settings => 'Settings';
 
   @override

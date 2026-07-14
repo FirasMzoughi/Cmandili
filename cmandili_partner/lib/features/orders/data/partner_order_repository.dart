@@ -94,6 +94,21 @@ class PartnerOrderRepository {
     return controller.stream;
   }
 
+  /// Fetch a single order once by id (with items joined).
+  ///
+  /// Used by the notification deep-link: when the partner taps an alarm we only
+  /// have the order id, so we resolve the full [Order] before pushing the
+  /// detail screen. Returns null if the order no longer exists / isn't visible.
+  Future<Order?> fetchOrder(String orderId) async {
+    final row = await _supabase
+        .from('orders_with_customer')
+        .select('*, order_items(*, food_items(*), grocery_items(*))')
+        .eq('id', orderId)
+        .maybeSingle();
+    if (row == null) return null;
+    return Order.fromJson(_mapOrderFromDb(row));
+  }
+
   /// Stream a single order in real-time for the tracking screen.
   ///
   /// Supabase's `.stream()` can't join, so we listen for Postgres changes on
@@ -265,7 +280,22 @@ class PartnerOrderRepository {
       'isRecipientAccepted': false,
       'customerName': dbJson['customer_name'],
       'customerPhone': dbJson['customer_phone'],
+      'selfDelivery': dbJson['self_delivery'] ?? false,
+      'noDriverNotifiedAt': dbJson['no_driver_notified_at'],
     };
+  }
+
+  /// Mark an order as partner-self-delivered.
+  ///
+  /// Sets self_delivery = true and advances status to 'onTheWay' (camelCase —
+  /// the only spelling orders_status_check accepts) so the partner can use
+  /// the existing "mark as delivered" flow to complete it.
+  /// driver_fee_cut will be 0 when the settlement trigger fires on delivery.
+  Future<void> confirmSelfDelivery(String orderId) async {
+    await _supabase.from('orders').update({
+      'self_delivery': true,
+      'status': 'onTheWay',
+    }).eq('id', orderId);
   }
 
   /// Parse the nested `order_items` array returned by the join.

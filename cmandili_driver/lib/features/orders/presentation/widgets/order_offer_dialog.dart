@@ -35,6 +35,9 @@ class _OrderOfferDialogState extends State<OrderOfferDialog> {
   Map<String, dynamic>? _order;
   bool _loading = true;
   bool _settling = false;
+  // When true, the inline reject-confirmation panel is visible.
+  // The countdown timer is NOT paused — it keeps ticking normally.
+  bool _confirmingReject = false;
 
   @override
   void initState() {
@@ -157,35 +160,98 @@ class _OrderOfferDialogState extends State<OrderOfferDialog> {
               else
                 _buildOrderSummary(),
               const SizedBox(height: 20),
-              Row(
-                children: [
-                  Expanded(
-                    child: OutlinedButton(
-                      onPressed: _settling ? null : () => _onPass(),
-                      style: OutlinedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                        foregroundColor: AppColors.textSecondary,
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                      ),
-                      child: const Text('Pass', style: TextStyle(fontWeight: FontWeight.w600)),
-                    ),
+              // ── Inline reject confirmation panel ─────────────────────────────
+              // Shown when driver taps "Refuser". The countdown timer (_ticker)
+              // keeps running normally — if it expires while this panel is
+              // visible, _onPass(auto: true) fires and pops the whole dialog.
+              if (_confirmingReject) ...[
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: AppColors.error.withValues(alpha: 0.08),
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: AppColors.error.withValues(alpha: 0.25)),
                   ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    flex: 2,
-                    child: ElevatedButton(
-                      onPressed: _settling ? null : _onAccept,
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: AppColors.primary,
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  child: Column(
+                    children: [
+                      const Text(
+                        'Êtes-vous sûr ?',
+                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
                       ),
-                      child: const Text('Accept', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-                    ),
+                      const SizedBox(height: 6),
+                      const Text(
+                        'Voulez-vous vraiment refuser cette commande ?',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(color: AppColors.textSecondary, fontSize: 13),
+                      ),
+                      const SizedBox(height: 14),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: OutlinedButton(
+                              onPressed: _settling ? null : () => _onPass(),
+                              style: OutlinedButton.styleFrom(
+                                padding: const EdgeInsets.symmetric(vertical: 12),
+                                foregroundColor: AppColors.error,
+                                side: BorderSide(color: AppColors.error.withValues(alpha: 0.5)),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                              ),
+                              child: const Text('Oui, je refuse', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: ElevatedButton(
+                              onPressed: _settling ? null : () {
+                                setState(() => _confirmingReject = false);
+                                _onAccept();
+                              },
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: AppColors.primary,
+                                foregroundColor: Colors.white,
+                                padding: const EdgeInsets.symmetric(vertical: 12),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                              ),
+                              child: const Text('Non, j\'accepte', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
                   ),
-                ],
-              ),
+                ),
+              ] else ...[
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton(
+                        // Show inline confirmation panel instead of passing immediately.
+                        onPressed: _settling ? null : () => setState(() => _confirmingReject = true),
+                        style: OutlinedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          foregroundColor: AppColors.textSecondary,
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        ),
+                        child: const Text('Refuser', style: TextStyle(fontWeight: FontWeight.w600)),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      flex: 2,
+                      child: ElevatedButton(
+                        onPressed: _settling ? null : _onAccept,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: AppColors.primary,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        ),
+                        child: const Text('Accepter', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
             ],
           ),
         ),

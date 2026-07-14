@@ -30,7 +30,8 @@ class _AuthScreenState extends ConsumerState<AuthScreen>
   final _nameController = TextEditingController();
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
-  
+  final _phoneController = TextEditingController();
+
   bool _isLoading = false;
   bool _obscurePassword = true;
 
@@ -88,6 +89,7 @@ class _AuthScreenState extends ConsumerState<AuthScreen>
     _nameController.dispose();
     _emailController.dispose();
     _passwordController.dispose();
+    _phoneController.dispose();
     super.dispose();
   }
 
@@ -109,6 +111,7 @@ class _AuthScreenState extends ConsumerState<AuthScreen>
           _emailController.text.trim(),
           _passwordController.text,
           _nameController.text.trim(),
+          _phoneController.text.trim(),
         );
       }
     } catch (e) {
@@ -437,6 +440,15 @@ class _AuthScreenState extends ConsumerState<AuthScreen>
                                           screenHeight: screenHeight,
                                         ),
                                         SizedBox(height: screenHeight * 0.015),
+                                        _buildTextField(
+                                          controller: _phoneController,
+                                          label: AppLocalizations.of(context)!.phoneNumberLabel,
+                                          icon: Icons.phone_outlined,
+                                          keyboardType: TextInputType.phone,
+                                          screenWidth: screenWidth,
+                                          screenHeight: screenHeight,
+                                        ),
+                                        SizedBox(height: screenHeight * 0.015),
                                       ],
                                       _buildTextField(
                                         controller: _emailController,
@@ -701,6 +713,10 @@ class _AuthScreenState extends ConsumerState<AuthScreen>
         }
         if (label == AppLocalizations.of(context)!.password && value.length < 6) {
           return AppLocalizations.of(context)!.passwordLength;
+        }
+        if (label == AppLocalizations.of(context)!.phoneNumberLabel) {
+          final digits = value.replaceAll(RegExp(r'[^0-9]'), '');
+          if (digits.length < 8) return AppLocalizations.of(context)!.phoneInvalid;
         }
         return null;
       },

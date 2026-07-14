@@ -166,6 +166,54 @@ abstract class AppLocalizations {
   /// **'Password must be at least 6 characters'**
   String get passwordLength;
 
+  /// No description provided for @phoneNumberLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Phone Number'**
+  String get phoneNumberLabel;
+
+  /// No description provided for @phoneInvalid.
+  ///
+  /// In en, this message translates to:
+  /// **'Please enter a valid 8-digit phone number'**
+  String get phoneInvalid;
+
+  /// No description provided for @defaultHours.
+  ///
+  /// In en, this message translates to:
+  /// **'Default Hours'**
+  String get defaultHours;
+
+  /// No description provided for @enableAutoClose.
+  ///
+  /// In en, this message translates to:
+  /// **'Auto-close at closing time'**
+  String get enableAutoClose;
+
+  /// No description provided for @openingTimeLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Opening time'**
+  String get openingTimeLabel;
+
+  /// No description provided for @closingTimeLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Closing time'**
+  String get closingTimeLabel;
+
+  /// No description provided for @notSet.
+  ///
+  /// In en, this message translates to:
+  /// **'Not set'**
+  String get notSet;
+
+  /// No description provided for @scheduleSaved.
+  ///
+  /// In en, this message translates to:
+  /// **'Schedule saved'**
+  String get scheduleSaved;
+
   /// No description provided for @settings.
   ///
   /// In en, this message translates to:

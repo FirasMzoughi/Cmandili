@@ -45,6 +45,10 @@ class AppLocalizationsFr extends AppLocalizations {
       'Le mot de passe doit contenir au moins 6 caractères';
 
   @override
+  String get phoneInvalid =>
+      'Veuillez entrer un numéro de téléphone valide à 8 chiffres';
+
+  @override
   String get settings => 'Paramètres';
 
   @override

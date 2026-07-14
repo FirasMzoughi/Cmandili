@@ -10,6 +10,7 @@
     "pleaseEnter": "Veuillez entrer votre {field}",
     "validEmail": "Veuillez entrer un email valide",
     "passwordLength": "Le mot de passe doit contenir au moins 6 caractères",
+    "phoneInvalid": "Veuillez entrer un numéro de téléphone valide à 8 chiffres",
     "settings": "Paramètres",
     "language": "Langue",
     "theme": "Thème",

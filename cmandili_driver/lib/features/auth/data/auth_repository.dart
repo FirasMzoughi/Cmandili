@@ -68,6 +68,7 @@ class AuthRepository {
     String email,
     String password,
     String name,
+    String phone,
   ) async {
     final response = await _supabase.auth.signUp(
       email: email,
@@ -78,17 +79,23 @@ class AuthRepository {
     final user = response.user;
     if (user == null) throw 'Sign up failed';
 
-    await _ensureDriverRow(user.id, name, email);
+    await _ensureDriverRow(user.id, phone);
     return User.fromSupabase(user);
   }
 
-  Future<void> _ensureDriverRow(String userId, String name, String email) async {
-    // Only columns that exist on public.drivers — full_name/email live on
-    // auth.users metadata, not on this table.
+  Future<void> _ensureDriverRow(String userId, String phone) async {
     await _supabase.from('drivers').upsert({
       'user_id': userId,
       'is_online': false,
     }, onConflict: 'user_id');
+
+    // Store phone on the profiles row (created by the auth trigger)
+    if (phone.isNotEmpty) {
+      await _supabase.from('profiles').upsert({
+        'id': userId,
+        'phone': phone,
+      }, onConflict: 'id');
+    }
   }
 
   // Sign in with Google
@@ -118,11 +125,8 @@ class AuthRepository {
       final user = response.user;
       if (user == null) throw 'Google sign in failed';
 
-      await _ensureDriverRow(
-        user.id,
-        user.userMetadata?['full_name'] as String? ?? user.userMetadata?['name'] as String? ?? '',
-        user.email ?? '',
-      );
+      // Google sign-in: phone not available at this point; driver can update it from profile settings
+      await _ensureDriverRow(user.id, '');
 
       return User.fromSupabase(user);
     } catch (e) {

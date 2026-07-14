@@ -7,6 +7,10 @@ import '../data/models/order.dart';
 import '../providers/partner_orders_provider.dart';
 import 'widgets/voice_note_player.dart';
 
+// State provider to handle the self-delivery confirmation loading state.
+// Scoped per order-detail screen instance via order ID.
+final _selfDeliveryLoadingProvider = StateProvider.autoDispose<bool>((ref) => false);
+
 class OrderDetailScreen extends ConsumerWidget {
   final Order order;
   const OrderDetailScreen({super.key, required this.order});
@@ -163,6 +167,13 @@ class OrderDetailScreen extends ConsumerWidget {
 
           const SizedBox(height: 24),
 
+          // Self-delivery banner: shown when the waterfall failed and the
+          // partner hasn't committed to self-delivery yet.
+          if (_showSelfDeliveryBanner(order))
+            _SelfDeliveryBanner(order: order),
+
+          if (_showSelfDeliveryBanner(order)) const SizedBox(height: 12),
+
           // Action buttons for non-final statuses
           if (order.status != OrderStatus.delivered && order.status != OrderStatus.cancelled)
             SizedBox(
@@ -181,6 +192,18 @@ class OrderDetailScreen extends ConsumerWidget {
         ],
       ),
     );
+  }
+
+  bool _showSelfDeliveryBanner(Order o) {
+    // Show the banner when:
+    //  - The DB has recorded that all drivers were exhausted (no_driver_notified_at set)
+    //  - The partner hasn't chosen self-delivery yet
+    //  - No driver has accepted the order
+    //  - The order is still awaiting delivery (ready or confirmed)
+    return o.noDriverNotifiedAt != null &&
+        !o.selfDelivery &&
+        o.driverId == null &&
+        (o.status == OrderStatus.ready || o.status == OrderStatus.confirmed);
   }
 
   void _showStatusSheet(BuildContext context, WidgetRef ref) {
@@ -461,6 +484,124 @@ class _CustomerSection extends StatelessWidget {
         ],
       ),
     );
+  }
+}
+
+// ── Self-delivery banner ──────────────────────────────────────────────────────
+
+class _SelfDeliveryBanner extends ConsumerWidget {
+  final Order order;
+  const _SelfDeliveryBanner({required this.order});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final isLoading = ref.watch(_selfDeliveryLoadingProvider);
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.orange.shade50,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.orange.shade200),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Colors.orange.shade100,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Icon(Icons.delivery_dining_rounded, color: Colors.orange.shade700, size: 22),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Aucun livreur disponible',
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 15,
+                        color: Colors.orange.shade800,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      'Voulez-vous livrer cette commande vous-même ?',
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: Colors.orange.shade700,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          SizedBox(
+            width: double.infinity,
+            height: 44,
+            child: ElevatedButton(
+              onPressed: isLoading ? null : () => _onConfirmSelfDelivery(context, ref),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.orange.shade600,
+                foregroundColor: Colors.white,
+                disabledBackgroundColor: Colors.orange.shade200,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                elevation: 0,
+              ),
+              child: isLoading
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(
+                        color: Colors.white,
+                        strokeWidth: 2,
+                      ),
+                    )
+                  : const Text(
+                      'Je livre cette commande',
+                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+                    ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _onConfirmSelfDelivery(BuildContext context, WidgetRef ref) async {
+    ref.read(_selfDeliveryLoadingProvider.notifier).state = true;
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      await ref.read(partnerOrderRepositoryProvider).confirmSelfDelivery(order.id);
+      // The realtime subscription on orders will update the UI automatically.
+      // Status is now 'on_the_way' — partner uses the existing mark-delivered flow.
+      if (context.mounted) {
+        messenger.showSnackBar(const SnackBar(
+          content: Text('Vous êtes maintenant en livraison. Marquez la commande comme livrée une fois remise.'),
+          backgroundColor: Colors.green,
+          duration: Duration(seconds: 4),
+        ));
+      }
+    } catch (e) {
+      if (context.mounted) {
+        messenger.showSnackBar(SnackBar(
+          content: Text('Erreur: $e'),
+          backgroundColor: AppColors.error,
+        ));
+      }
+    } finally {
+      if (context.mounted) {
+        ref.read(_selfDeliveryLoadingProvider.notifier).state = false;
+      }
+    }
   }
 }
 
