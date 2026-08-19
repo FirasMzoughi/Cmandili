@@ -25,6 +25,22 @@
  *                                Cannot be named SUPABASE_*; that prefix is
  *                                reserved by Supabase.
  *   FCM_SERVICE_ACCOUNT_JSON   — Firebase service account JSON, base64-encoded
+ *   TRIGGER_SHARED_SECRET      — random string only the DB triggers know.
+ *                                REQUIRED. `verify_jwt = true` (config.toml)
+ *                                is not real access control here: the DB
+ *                                triggers historically authenticated with the
+ *                                public anon/publishable key (see
+ *                                20260425_inline_edge_function_url.sql), which
+ *                                is compiled into every shipped Flutter app —
+ *                                so any caller with that key could POST here
+ *                                directly and spam arbitrary users with pushes
+ *                                (driver "10s to accept" alarms, fake status
+ *                                updates, etc). This secret is checked
+ *                                independently of the anon-key JWT check.
+ *                                Generate one with `openssl rand -hex 32`,
+ *                                then:
+ *                                  supabase secrets set TRIGGER_SHARED_SECRET=<value>
+ *                                  ALTER DATABASE postgres SET app.edge_function_secret = '<value>';
  *   DRIVER_FANOUT_RADIUS_KM    — optional, default 7
  *
  * Invoke URL: POST /functions/v1/push-on-order-status
@@ -184,10 +200,24 @@ serve(async (req: Request) => {
   // SUPABASE_* prefix and rejects setting secrets with that prefix.
   const serviceKey  = Deno.env.get('SERVICE_ROLE_KEY')!;
   const saJsonB64   = Deno.env.get('FCM_SERVICE_ACCOUNT_JSON')!;
+  const sharedSecret = Deno.env.get('TRIGGER_SHARED_SECRET');
   const fanoutRadius = Number(Deno.env.get('DRIVER_FANOUT_RADIUS_KM') ?? '7');
 
   if (!supabaseUrl || !serviceKey || !saJsonB64) {
     return new Response('Missing env vars', { status: 500 });
+  }
+
+  // `verify_jwt = true` (config.toml) only proves the caller has *some*
+  // valid Supabase JWT — the public anon/publishable key qualifies, and
+  // that key is compiled into every shipped Flutter app. Without this
+  // check, anyone holding the anon key could POST here directly and spam
+  // arbitrary users with pushes (fake status updates, repeated driver
+  // "10s to accept" alarms, etc). Fail closed if the secret isn't
+  // configured — better to silently not push than to be an open relay.
+  const authHeader = req.headers.get('Authorization') ?? '';
+  const presented = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : '';
+  if (!sharedSecret || presented !== sharedSecret) {
+    return new Response('Unauthorized', { status: 401 });
   }
 
   const { event, order_id, status } = await req.json();
