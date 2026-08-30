@@ -135,6 +135,15 @@ class _AppMapState extends State<AppMap> {
 
   final Map<AppMapMarkerKind, Uint8List> _iconCache = {};
 
+  // _syncMarkers is async but called fire-and-forget from didUpdateWidget,
+  // which can fire again (e.g. on a fast-following GPS tick) before the
+  // previous call finishes. Without serializing, two overlapping calls can
+  // race on _renderedMarkers and throw, silently stopping the driver marker
+  // from ever moving again with no visible error. Queued: a call that
+  // arrives mid-sync re-runs once more after the in-flight one finishes.
+  bool _markerSyncInFlight = false;
+  bool _markerSyncQueued = false;
+
   @override
   void initState() {
     super.initState();
@@ -195,15 +204,45 @@ class _AppMapState extends State<AppMap> {
     _markerManager = await map.annotations.createPointAnnotationManager();
     // MAP alignment (not the VIEWPORT default) rotates icons relative to true
     // north, so a driver marker's bearing keeps pointing the right physical
-    // direction even as the user rotates/tilts the map.
-    await _markerManager?.setIconRotationAlignment(mb.IconRotationAlignment.MAP);
+    // direction even as the user rotates/tilts the map. Best-effort: this is
+    // a purely cosmetic setting, but an uncaught failure here would otherwise
+    // throw out of _onMapCreated and skip every line after it -- including
+    // creating the polyline manager and the very first marker sync, which
+    // would make every marker never appear or update at all.
+    try {
+      await _markerManager?.setIconRotationAlignment(mb.IconRotationAlignment.MAP);
+    } catch (e) {
+      debugPrint('AppMap: setIconRotationAlignment failed (non-fatal): $e');
+    }
     _polylineManager = await map.annotations.createPolylineAnnotationManager();
     await _syncMarkers();
     await _syncPolyline();
     if (mounted) widget.onMapReady?.call();
   }
 
+  /// Entry point every caller uses. Serializes against a concurrent
+  /// in-flight sync and never lets an exception from the platform channel
+  /// permanently stop future syncs -- logged and swallowed instead.
   Future<void> _syncMarkers() async {
+    if (_markerSyncInFlight) {
+      _markerSyncQueued = true;
+      return;
+    }
+    _markerSyncInFlight = true;
+    try {
+      await _syncMarkersNow();
+    } catch (e, st) {
+      debugPrint('AppMap: marker sync failed, will retry on next update: $e\n$st');
+    } finally {
+      _markerSyncInFlight = false;
+      if (_markerSyncQueued) {
+        _markerSyncQueued = false;
+        unawaited(_syncMarkers());
+      }
+    }
+  }
+
+  Future<void> _syncMarkersNow() async {
     final manager = _markerManager;
     if (manager == null) return;
 
