@@ -169,20 +169,19 @@ class _OrderOfferDialogState extends ConsumerState<OrderOfferDialog> {
       final driverId = await ref.read(currentDriverIdProvider.future);
       if (driverId == null) throw 'Driver profile not found';
 
-      // Atomically claim the order — only succeeds if this is still a live,
-      // valid offer for THIS driver: still assigned to them, not already
-      // claimed, and not past the server's assignment_expires_at deadline.
-      // Guards against racing the auto-expiry or a concurrent reassignment.
-      final claimed = await Supabase.instance.client
-          .from('orders')
-          .update({'driver_id': driverId})
-          .eq('id', widget.orderId)
-          .eq('assigned_driver_id', driverId)
-          .isFilter('driver_id', null)
-          .gt('assignment_expires_at', DateTime.now().toUtc().toIso8601String())
-          .select('id');
+      // Atomically claim the order server-side — accept_order_offer() checks
+      // assignment_expires_at against Postgres's own now(), not the phone's
+      // clock. The old .update()...gt(<phone timestamp>) version compared
+      // against whatever time the phone happened to send, so clock drift or
+      // plain network latency could reject a still-valid offer. Returns the
+      // claimed order id, or NULL if it lost the race (already taken,
+      // reassigned, or genuinely expired per the server).
+      final claimedId = await Supabase.instance.client.rpc(
+        'accept_order_offer',
+        params: {'p_order_id': widget.orderId},
+      );
 
-      if ((claimed as List).isEmpty) {
+      if (claimedId == null) {
         throw 'This offer is no longer available.';
       }
 

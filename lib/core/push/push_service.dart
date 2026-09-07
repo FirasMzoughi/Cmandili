@@ -18,47 +18,25 @@ const String _kAlarmChannelName = 'Delivery Offer';
 const String _kAlarmChannelDesc =
     'Incoming delivery requests that require immediate attention';
 
-// Stable notification ID so the alarm can be programmatically cancelled
-// once the driver accepts or rejects the offer.
-const int kDriverAlarmNotifId = 101;
+// Stable notification IDs so each alarm can be programmatically cancelled.
+// Two separate IDs (not one shared) so a parcel broadcast arriving while a
+// single-target food offer is still ringing doesn't silently replace it, or
+// vice versa — each rings and cancels independently.
+const int kDriverAlarmNotifId = 101; // single-target food/facture-cascade offer
+const int kParcelAlarmNotifId = 102; // broadcast parcel/facture availability
 
-// ── Background handler ───────────────────────────────────────────────────────
-@pragma('vm:entry-point')
-Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
-  final event = message.data['event'] as String?;
-  if (event != 'offer_to_driver') return; // Only handle delivery offers here.
-
-  // Re-init flutter_local_notifications inside the background isolate.
-  final local = FlutterLocalNotificationsPlugin();
-  const androidInit = AndroidInitializationSettings('@mipmap/ic_launcher');
-  const iosInit = DarwinInitializationSettings();
-  await local.initialize(
-    const InitializationSettings(android: androidInit, iOS: iosInit),
-  );
-
-  // Create the alarm channel (idempotent — safe to call every time).
-  await local
-      .resolvePlatformSpecificImplementation<
-          AndroidFlutterLocalNotificationsPlugin>()
-      ?.createNotificationChannel(AndroidNotificationChannel(
-        _kAlarmChannelId,
-        _kAlarmChannelName,
-        description: _kAlarmChannelDesc,
-        importance: Importance.max,
-        playSound: true,
-        // File: android/app/src/main/res/raw/new_order.mp3
-        sound: const RawResourceAndroidNotificationSound('new_order'),
-        enableVibration: true,
-        vibrationPattern:
-            Int64List.fromList([0, 400, 200, 400, 200, 400, 200, 800]),
-      ));
-
-  final title = message.data['title'] as String? ?? '🔔 Nouvelle livraison !';
-  final body  = message.data['body']  as String?
-      ?? 'Vous avez 15 secondes pour accepter.';
-
-  await local.show(
-    kDriverAlarmNotifId,
+/// Same alarm-grade channel + sound + FLAG_INSISTENT + fullScreenIntent used
+/// for both notification types above — this is the one loud, hard-to-miss
+/// treatment in the app; nothing new to build per event type, just reused
+/// with a different id/title/body.
+Future<void> _showAlarmNotification(
+  FlutterLocalNotificationsPlugin local, {
+  required int notifId,
+  required String title,
+  required String body,
+}) {
+  return local.show(
+    notifId,
     title,
     body,
     NotificationDetails(
@@ -93,9 +71,60 @@ Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
         // File: Runner/Resources/driver_alarm.wav (max 30 s on iOS).
         sound: 'new_order.wav',
         // critical alert: overrides silent/DND on iOS (requires entitlement).
+        // Without that entitlement granted by Apple for this app, iOS treats
+        // this as a normal alert instead — a platform limit, not a bug here.
         interruptionLevel: InterruptionLevel.critical,
       ),
     ),
+  );
+}
+
+// ── Background handler ───────────────────────────────────────────────────────
+@pragma('vm:entry-point')
+Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
+  final event = message.data['event'] as String?;
+  // Only handle delivery offers and parcel broadcasts here.
+  if (event != 'offer_to_driver' && event != 'parcel_broadcast') return;
+
+  // Re-init flutter_local_notifications inside the background isolate.
+  final local = FlutterLocalNotificationsPlugin();
+  const androidInit = AndroidInitializationSettings('@mipmap/ic_launcher');
+  const iosInit = DarwinInitializationSettings();
+  await local.initialize(
+    const InitializationSettings(android: androidInit, iOS: iosInit),
+  );
+
+  // Create the alarm channel (idempotent — safe to call every time).
+  await local
+      .resolvePlatformSpecificImplementation<
+          AndroidFlutterLocalNotificationsPlugin>()
+      ?.createNotificationChannel(AndroidNotificationChannel(
+        _kAlarmChannelId,
+        _kAlarmChannelName,
+        description: _kAlarmChannelDesc,
+        importance: Importance.max,
+        playSound: true,
+        // File: android/app/src/main/res/raw/new_order.mp3
+        sound: const RawResourceAndroidNotificationSound('new_order'),
+        enableVibration: true,
+        vibrationPattern:
+            Int64List.fromList([0, 400, 200, 400, 200, 400, 200, 800]),
+      ));
+
+  final defaultTitle = event == 'parcel_broadcast'
+      ? '📦 Nouveau colis disponible'
+      : '🔔 Nouvelle livraison !';
+  final defaultBody = event == 'parcel_broadcast'
+      ? 'Premier arrivé, premier servi.'
+      : 'Vous avez 15 secondes pour accepter.';
+  final title = message.data['title'] as String? ?? defaultTitle;
+  final body  = message.data['body']  as String? ?? defaultBody;
+
+  await _showAlarmNotification(
+    local,
+    notifId: event == 'parcel_broadcast' ? kParcelAlarmNotifId : kDriverAlarmNotifId,
+    title: title,
+    body: body,
   );
 }
 
@@ -270,39 +299,26 @@ class PushService {
       }
       // Show the alarm notification even in foreground so the driver can't
       // miss it if their phone is lying face-down.
-      final title = message.data['title'] as String? ?? '🔔 Nouvelle livraison !';
-      final body  = message.data['body']  as String?
-          ?? 'Vous avez 15 secondes pour accepter.';
-      _local.show(
-        kDriverAlarmNotifId,
-        title,
-        body,
-        NotificationDetails(
-          android: AndroidNotificationDetails(
-            _kAlarmChannelId,
-            _kAlarmChannelName,
-            channelDescription: _kAlarmChannelDesc,
-            importance: Importance.max,
-            priority: Priority.max,
-            playSound: true,
-            sound: const RawResourceAndroidNotificationSound('new_order'),
-            audioAttributesUsage: AudioAttributesUsage.alarm,
-            enableVibration: true,
-            vibrationPattern:
-                Int64List.fromList([0, 400, 200, 400, 200, 400, 200, 800]),
-            additionalFlags: Int32List.fromList([4]),
-            fullScreenIntent: true,
-            visibility: NotificationVisibility.public,
-            category: AndroidNotificationCategory.call,
-            ongoing: true,
-            autoCancel: false,
-          ),
-          iOS: const DarwinNotificationDetails(
-            presentSound: true,
-            sound: 'new_order.wav',
-            interruptionLevel: InterruptionLevel.critical,
-          ),
-        ),
+      _showAlarmNotification(
+        _local,
+        notifId: kDriverAlarmNotifId,
+        title: message.data['title'] as String? ?? '🔔 Nouvelle livraison !',
+        body: message.data['body'] as String? ?? 'Vous avez 15 secondes pour accepter.',
+      );
+      return;
+    }
+
+    // ── Parcel broadcast → same loud alarm, no single-order dialog ────────
+    // This isn't targeted at one driver like offer_to_driver, so there's no
+    // OrderOffer to emit — the Realtime subscription on the home screen
+    // already refreshes "Commandes disponibles" on its own. This just makes
+    // sure the driver notices at all, the same way a food offer would.
+    if (event == 'parcel_broadcast') {
+      _showAlarmNotification(
+        _local,
+        notifId: kParcelAlarmNotifId,
+        title: message.data['title'] as String? ?? '📦 Nouveau colis disponible',
+        body: message.data['body'] as String? ?? 'Premier arrivé, premier servi.',
       );
       return;
     }
@@ -353,8 +369,14 @@ class PushService {
     _emitOffer(message.data['order_id'] as String?);
   }
 
-  // ── Cancel alarm notification ───────────────────────────────────────────
+  // ── Cancel alarm notification(s) ────────────────────────────────────────
   // MUST be called after the driver accepts or rejects the offer to stop the
   // continuous ringing. If this is not called the notification rings forever.
   Future<void> cancelDeliveryAlarm() => _local.cancel(kDriverAlarmNotifId);
+
+  // Parcel broadcasts have no single accept/reject action to hang this off
+  // of — any driver, or none, may end up taking it. Silenced instead by the
+  // driver simply opening/resuming the app, since accepting only happens
+  // in-app anyway (see HomeScreen's init/resume hook).
+  Future<void> cancelParcelAlarm() => _local.cancel(kParcelAlarmNotifId);
 }

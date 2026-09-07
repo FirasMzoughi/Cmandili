@@ -125,7 +125,7 @@ class _OrderCardState extends ConsumerState<_OrderCard> {
           .select('id');
 
       if ((claimed as List).isEmpty) {
-        throw 'This order was just taken by another driver.';
+        throw "Cette commande vient d'être prise par un autre livreur.";
       }
 
       // Create delivery row now that we own the order.
@@ -157,7 +157,7 @@ class _OrderCardState extends ConsumerState<_OrderCard> {
       setState(() => _accepting = false);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Failed to accept order: $e'),
+          content: Text("Échec de l'acceptation : $e"),
           backgroundColor: AppColors.error,
         ),
       );

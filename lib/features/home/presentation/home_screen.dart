@@ -27,6 +27,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     with WidgetsBindingObserver {
   int _selectedIndex = 0;
   StreamSubscription<OrderOffer>? _offerSub;
+  StreamSubscription<List<Map<String, dynamic>>>? _realtimeOfferSub;
   bool _offerOpen = false; // guards against stacking dialogs on rapid pushes
 
   @override
@@ -47,18 +48,58 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     // a still-valid pending offer on cold start and on every resume.
     WidgetsBinding.instance.addObserver(this);
     _checkForPendingOffer();
+    // A parcel broadcast has no per-driver expiry to silence it automatically
+    // (see cancelParcelAlarm's own comment) — stop it as soon as the driver
+    // actually looks at the app, cold start or resume alike.
+    PushService.instance.cancelParcelAlarm();
+
+    // Neither of the two paths above catches the case where the driver is
+    // ALREADY sitting on this screen, in the foreground, doing nothing, when
+    // an offer is assigned — offerStream needs a real FCM delivery (which we
+    // already know is unreliable on some OEM/MIUI devices), and the resume
+    // check only fires on a background→foreground transition. Subscribe to
+    // Realtime directly on the orders row itself so a driver already staring
+    // at the app sees the dialog appear on its own, no push and no
+    // background/foreground cycle required.
+    _subscribeToOfferChanges();
+  }
+
+  Future<void> _subscribeToOfferChanges() async {
+    final driverId = await ref.read(currentDriverIdProvider.future);
+    if (driverId == null || !mounted) return;
+    _realtimeOfferSub = Supabase.instance.client
+        .from('orders')
+        .stream(primaryKey: ['id'])
+        .eq('assigned_driver_id', driverId)
+        .listen((rows) {
+      final nowUtc = DateTime.now().toUtc();
+      for (final row in rows) {
+        if (row['driver_id'] != null) continue; // already accepted
+        final expiresAt = row['assignment_expires_at'] as String?;
+        if (expiresAt == null) continue;
+        if (DateTime.parse(expiresAt).isAfter(nowUtc)) {
+          _onOffer(OrderOffer(
+              orderId: row['id'] as String, receivedAt: DateTime.now()));
+          return;
+        }
+      }
+    });
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _offerSub?.cancel();
+    _realtimeOfferSub?.cancel();
     super.dispose();
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed) _checkForPendingOffer();
+    if (state == AppLifecycleState.resumed) {
+      _checkForPendingOffer();
+      PushService.instance.cancelParcelAlarm();
+    }
   }
 
   Future<void> _checkForPendingOffer() async {
