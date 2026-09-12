@@ -327,8 +327,23 @@ class PushService {
     final title = message.notification?.title ?? message.data['title'] as String?;
     final body  = message.notification?.body  ?? message.data['body']  as String?;
     if (title == null && body == null) return;
+    // Stable per-order id (message.hashCode is unique per message, so a
+    // single order's confirmed→ready→pickedUp→onTheWay→delivered lifecycle
+    // was posting 4-5 separate HIGH-importance, alert-eligible notifications
+    // instead of updating one). Each one is a fresh alert attempt, and enough
+    // of them in a short window burns through Android's own per-app
+    // alert-rate budget — confirmed on a real device via dumpsys
+    // notification's numAlertViolations climbing independently of DND/
+    // volume/channel config — which then silently denies sound to whatever
+    // alert-eligible notification fires next, including the unrelated
+    // cmandili_driver_alarm_2 delivery-offer channel. onlyAlertOnce stops a
+    // later update to the same order from re-triggering sound/vibration.
+    final orderId = message.data['order_id'] as String?;
+    final notifId = orderId != null && orderId.isNotEmpty
+        ? orderId.hashCode
+        : message.hashCode;
     _local.show(
-      message.hashCode,
+      notifId,
       title,
       body,
       const NotificationDetails(
@@ -338,6 +353,7 @@ class PushService {
           channelDescription: _kChannelDesc,
           importance: Importance.high,
           priority: Priority.high,
+          onlyAlertOnce: true,
         ),
         iOS: DarwinNotificationDetails(),
       ),
