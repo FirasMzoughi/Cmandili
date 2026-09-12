@@ -9,7 +9,7 @@ import '../providers/auth_provider.dart';
 ///
 /// Receives the [email] the user typed in [ForgotPasswordScreen] so it can
 /// pass it to `verifyOtp`.  The screen collects:
-///   1. The 6-digit code from the email.
+///   1. The 8-digit code from the email.
 ///   2. The new password (+ confirmation).
 class ResetPasswordScreen extends ConsumerStatefulWidget {
   final String email;
@@ -288,7 +288,7 @@ class _ResetPasswordScreenState extends ConsumerState<ResetPasswordScreen>
                                         crossAxisAlignment:
                                             CrossAxisAlignment.stretch,
                                         children: [
-                                          // ── 6-digit OTP field ────────
+                                          // ── 8-digit OTP field ────────
                                           _buildOtpField(sw, sh),
 
                                           SizedBox(height: sh * 0.02),
@@ -410,7 +410,7 @@ class _ResetPasswordScreenState extends ConsumerState<ResetPasswordScreen>
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          '6-digit code',
+          '8-digit code',
           style: TextStyle(
             fontSize: sw * 0.035,
             fontWeight: FontWeight.w600,
@@ -422,7 +422,7 @@ class _ResetPasswordScreenState extends ConsumerState<ResetPasswordScreen>
           controller: _otpController,
           keyboardType: TextInputType.number,
           textAlign: TextAlign.center,
-          maxLength: 6,
+          maxLength: 8,
           inputFormatters: [FilteringTextInputFormatter.digitsOnly],
           style: TextStyle(
             fontSize: sw * 0.07,
@@ -462,8 +462,8 @@ class _ResetPasswordScreenState extends ConsumerState<ResetPasswordScreen>
                 EdgeInsets.symmetric(vertical: sh * 0.022),
           ),
           validator: (v) {
-            if (v == null || v.trim().length != 6) {
-              return 'Enter the 6-digit code from your email';
+            if (v == null || v.trim().length != 8) {
+              return 'Enter the 8-digit code from your email';
             }
             return null;
           },

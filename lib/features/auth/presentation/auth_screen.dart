@@ -7,6 +7,32 @@ import 'package:cmandili_partner/l10n/app_localizations.dart';
 import '../../../core/providers/localization_provider.dart';
 import 'forgot_password_screen.dart';
 
+/// Maps a raw auth exception (e.g. the Supabase client's
+/// `AuthApiException(message: Invalid login credentials, statusCode: 400,
+/// code: invalid_credentials)`) to a short message a partner can actually
+/// act on. Matched on the exception's own toString() rather than importing
+/// the exception type, since the client only needs a handful of known
+/// substrings and this keeps the check trivially portable.
+String friendlyAuthErrorMessage(Object e) {
+  final raw = e.toString().toLowerCase();
+  if (raw.contains('invalid login credentials') || raw.contains('invalid_credentials')) {
+    return 'Email ou mot de passe incorrect';
+  }
+  if (raw.contains('user already registered') || raw.contains('already registered')) {
+    return 'Un compte existe déjà avec cet email';
+  }
+  if (raw.contains('email not confirmed')) {
+    return 'Veuillez confirmer votre email avant de vous connecter';
+  }
+  if (raw.contains('password') && raw.contains('6 characters')) {
+    return 'Le mot de passe doit contenir au moins 6 caractères';
+  }
+  if (raw.contains('socketexception') || raw.contains('network') || raw.contains('connection')) {
+    return 'Problème de connexion internet';
+  }
+  return 'Une erreur est survenue, veuillez réessayer';
+}
+
 class AuthScreen extends ConsumerStatefulWidget {
   const AuthScreen({super.key});
 
@@ -120,7 +146,7 @@ class _AuthScreenState extends ConsumerState<AuthScreen>
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(e.toString()),
+            content: Text(friendlyAuthErrorMessage(e)),
             backgroundColor: AppColors.error,
             behavior: SnackBarBehavior.floating,
           ),
@@ -141,7 +167,7 @@ class _AuthScreenState extends ConsumerState<AuthScreen>
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(e.toString()),
+            content: Text(friendlyAuthErrorMessage(e)),
             backgroundColor: AppColors.error,
             behavior: SnackBarBehavior.floating,
           ),
