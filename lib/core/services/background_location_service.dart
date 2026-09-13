@@ -280,26 +280,37 @@ void _onStart(ServiceInstance service) async {
             'Location tracking active • ${pos.latitude.toStringAsFixed(4)}, ${pos.longitude.toStringAsFixed(4)}',
       );
     }
-    try {
-      await supabase.from('drivers').update({
-        'current_lat': pos.latitude,
-        'current_lng': pos.longitude,
-        'last_location_update': DateTime.now().toIso8601String(),
-      }).eq('id', driverId);
-    } catch (e) {
-      debugPrint('[BG] driver update failed: $e');
-    }
-    if (deliveryId != null) {
-      try {
-        await supabase.from('deliveries').update({
-          'current_lat': pos.latitude,
-          'current_lng': pos.longitude,
-          'updated_at': DateTime.now().toIso8601String(),
-        }).eq('id', deliveryId);
-      } catch (e) {
-        debugPrint('[BG] delivery update failed: $e');
-      }
-    }
+    // Both writes are independent (different tables, unrelated failure
+    // modes), so run them concurrently instead of one after the other --
+    // sequential awaits were paying double the network round-trip on every
+    // single GPS tick in the exact path the client's live tracking map
+    // depends on. Each keeps its own try/catch so one failing doesn't cancel
+    // or delay the other.
+    await Future.wait([
+      () async {
+        try {
+          await supabase.from('drivers').update({
+            'current_lat': pos.latitude,
+            'current_lng': pos.longitude,
+            'last_location_update': DateTime.now().toIso8601String(),
+          }).eq('id', driverId);
+        } catch (e) {
+          debugPrint('[BG] driver update failed: $e');
+        }
+      }(),
+      if (deliveryId != null)
+        () async {
+          try {
+            await supabase.from('deliveries').update({
+              'current_lat': pos.latitude,
+              'current_lng': pos.longitude,
+              'updated_at': DateTime.now().toIso8601String(),
+            }).eq('id', deliveryId);
+          } catch (e) {
+            debugPrint('[BG] delivery update failed: $e');
+          }
+        }(),
+    ]);
   }
 
   StreamSubscription<Position>? posStream;
