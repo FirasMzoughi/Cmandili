@@ -69,8 +69,9 @@ class AvailableOrdersScreen extends ConsumerWidget {
 /// Order-card title — type-aware so a driver can't mistake a courier
 /// package for a food order (or vice versa) at a glance. A named
 /// restaurant/supermarket always wins; otherwise falls back to whatever
-/// distinguishes the order type.
-String _orderTitle(Order order) {
+/// distinguishes the order type. Public (no leading underscore) since
+/// home_screen.dart's active-delivery dashboard card reuses it too.
+String orderTitle(Order order) {
   if (order.restaurantName.isNotEmpty) return order.restaurantName;
   switch (order.type) {
     case OrderType.courier:
@@ -211,7 +212,7 @@ class _OrderCardState extends ConsumerState<_OrderCard> {
               children: [
                 Expanded(
                   child: Text(
-                    _orderTitle(order),
+                    orderTitle(order),
                     style: const TextStyle(
                       fontWeight: FontWeight.bold,
                       fontSize: 17,
