@@ -13,7 +13,7 @@ const String _kChannelDesc = 'New deliveries and order updates';
 
 // Alarm channel — alarm AudioAttributes + max importance so the offer rings
 // even when the phone is in silent/vibrate mode.
-const String _kAlarmChannelId   = 'cmandili_driver_alarm_2';
+const String _kAlarmChannelId   = 'cmandili_driver_alarm_3';
 const String _kAlarmChannelName = 'Delivery Offer';
 const String _kAlarmChannelDesc =
     'Incoming delivery requests that require immediate attention';
@@ -83,8 +83,11 @@ Future<void> _showAlarmNotification(
 @pragma('vm:entry-point')
 Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   final event = message.data['event'] as String?;
-  // Only handle delivery offers and parcel broadcasts here.
-  if (event != 'offer_to_driver' && event != 'parcel_broadcast') return;
+  // Only handle alarm-grade driver alerts here. 'driver_fanout' is the event
+  // the DB triggers fire for a newly-ready order — it was missing from this
+  // guard, so the most common alert of all returned early and never rang.
+  const alarmEvents = {'offer_to_driver', 'parcel_broadcast', 'driver_fanout'};
+  if (!alarmEvents.contains(event)) return;
 
   // Re-init flutter_local_notifications inside the background isolate.
   final local = FlutterLocalNotificationsPlugin();
@@ -111,10 +114,13 @@ Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
             Int64List.fromList([0, 400, 200, 400, 200, 400, 200, 800]),
       ));
 
-  final defaultTitle = event == 'parcel_broadcast'
-      ? '📦 Nouveau colis disponible'
+  // Both broadcast-style events are first-come-first-served with no per-driver
+  // accept window, so they share the broadcast copy and notification id.
+  final isBroadcast = event == 'parcel_broadcast' || event == 'driver_fanout';
+  final defaultTitle = isBroadcast
+      ? '📦 Nouvelle commande disponible'
       : '🔔 Nouvelle livraison !';
-  final defaultBody = event == 'parcel_broadcast'
+  final defaultBody = isBroadcast
       ? 'Premier arrivé, premier servi.'
       : 'Vous avez 15 secondes pour accepter.';
   final title = message.data['title'] as String? ?? defaultTitle;
@@ -122,7 +128,7 @@ Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
 
   await _showAlarmNotification(
     local,
-    notifId: event == 'parcel_broadcast' ? kParcelAlarmNotifId : kDriverAlarmNotifId,
+    notifId: isBroadcast ? kParcelAlarmNotifId : kDriverAlarmNotifId,
     title: title,
     body: body,
   );
@@ -313,11 +319,11 @@ class PushService {
     // OrderOffer to emit — the Realtime subscription on the home screen
     // already refreshes "Commandes disponibles" on its own. This just makes
     // sure the driver notices at all, the same way a food offer would.
-    if (event == 'parcel_broadcast') {
+    if (event == 'parcel_broadcast' || event == 'driver_fanout') {
       _showAlarmNotification(
         _local,
         notifId: kParcelAlarmNotifId,
-        title: message.data['title'] as String? ?? '📦 Nouveau colis disponible',
+        title: message.data['title'] as String? ?? '📦 Nouvelle commande disponible',
         body: message.data['body'] as String? ?? 'Premier arrivé, premier servi.',
       );
       return;
@@ -336,7 +342,7 @@ class PushService {
     // notification's numAlertViolations climbing independently of DND/
     // volume/channel config — which then silently denies sound to whatever
     // alert-eligible notification fires next, including the unrelated
-    // cmandili_driver_alarm_2 delivery-offer channel. onlyAlertOnce stops a
+    // cmandili_driver_alarm_3 delivery-offer channel. onlyAlertOnce stops a
     // later update to the same order from re-triggering sound/vibration.
     final orderId = message.data['order_id'] as String?;
     final notifId = orderId != null && orderId.isNotEmpty

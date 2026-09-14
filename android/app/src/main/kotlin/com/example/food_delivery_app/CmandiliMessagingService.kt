@@ -24,13 +24,13 @@ import com.google.firebase.messaging.RemoteMessage
  * The Dart foreground handler (FirebaseMessaging.onMessage) still fires
  * normally when the app is open — this service only handles background/terminated.
  *
- * Channel "cmandili_driver_alarm_2" is pre-created in Application.onCreate()
+ * Channel "cmandili_driver_alarm_3" is pre-created in Application.onCreate()
  * with AudioAttributes.USAGE_ALARM + custom sound.
  */
 class CmandiliMessagingService : FirebaseMessagingService() {
 
     companion object {
-        private const val ALARM_CHANNEL_ID = "cmandili_driver_alarm_2"
+        private const val ALARM_CHANNEL_ID = "cmandili_driver_alarm_3"
         private const val ALARM_NOTIF_ID   = 101  // matches kDriverAlarmNotifId in push_service.dart
         // Separate id so a parcel broadcast arriving while a single-target food
         // offer is still ringing doesn't silently replace it, or vice versa —
@@ -46,9 +46,14 @@ class CmandiliMessagingService : FirebaseMessagingService() {
         // background handler in push_service.dart that DOES know about
         // parcel_broadcast never runs in this state; it's only reached when
         // the app is already in the foreground.
+        // "driver_fanout" is what the DB triggers actually fire when an order
+        // becomes ready (see supabase/migrations/20260424_push_geo_fanout.sql) —
+        // it was unhandled here, so the most common new-order alert of all
+        // produced no alarm. It targets no single driver, so it reuses the
+        // broadcast presentation.
         when (message.data["event"]) {
             "offer_to_driver" -> showDeliveryOffer(message.data)
-            "parcel_broadcast" -> showParcelBroadcast(message.data)
+            "parcel_broadcast", "driver_fanout" -> showParcelBroadcast(message.data)
         }
         // No super call needed — base FirebaseMessagingService.onMessageReceived() is a no-op.
         // The Flutter foreground listener (FirebaseMessaging.onMessage) fires via a separate
