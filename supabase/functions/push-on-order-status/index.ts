@@ -155,10 +155,13 @@ async function sendFcm(
   // driver_fanout is the event the DB triggers actually fire for a new
   // ready order (see migrations 20260424/20260425/20260512), so it needs the
   // same alarm treatment as the other two — it was previously silent.
+  // The partner app gates its alarm on data.type === 'new_order' (not event),
+  // so that carries the same alarm-grade treatment.
   const isAlarm =
     data.event === 'offer_to_driver' ||
     data.event === 'parcel_broadcast' ||
-    data.event === 'driver_fanout';
+    data.event === 'driver_fanout' ||
+    data.type === 'new_order';
 
   // The native/Dart handlers read title+body out of the data bag, so they have
   // to travel there once the `notification` block is gone.
@@ -420,8 +423,16 @@ serve(async (req: Request) => {
   }
   if (partnerUserId) {
     const c = copyFor('partner', status);
+    // The partner app's native alarm service and Dart handler both gate on
+    // data.type === 'new_order' — nothing was ever sending that key, so the
+    // partner's loud new-order alarm could never fire. A freshly inserted
+    // order arrives here as status 'pending' (the INSERT trigger posts no
+    // event), which is exactly the case that should ring.
+    const partnerData = status === 'pending'
+      ? { ...data, type: 'new_order' }
+      : data;
     results.partner = await pushToUsers(
-      supabase, accessToken, projectId, [partnerUserId], c.title, c.body, data,
+      supabase, accessToken, projectId, [partnerUserId], c.title, c.body, partnerData,
     );
   }
   if (driverUserId) {
