@@ -144,21 +144,53 @@ async function sendFcm(
   data: Record<string, string>,
 ) {
   const url = `https://fcm.googleapis.com/v1/projects/${projectId}/messages:send`;
+
+  // Alarm-grade events (delivery offers, parcel broadcasts) MUST be data-only.
+  // If an FCM message carries a `notification` block, the Android FCM SDK
+  // renders it itself while the app is backgrounded/killed and never calls
+  // CmandiliMessagingService.onMessageReceived() — so the custom alarm channel
+  // (sound + FLAG_INSISTENT + fullScreenIntent) is bypassed entirely and the
+  // notification lands silently on the manifest default channel instead.
+  // Data-only keeps onMessageReceived() in charge in every app state.
+  // driver_fanout is the event the DB triggers actually fire for a new
+  // ready order (see migrations 20260424/20260425/20260512), so it needs the
+  // same alarm treatment as the other two — it was previously silent.
+  const isAlarm =
+    data.event === 'offer_to_driver' ||
+    data.event === 'parcel_broadcast' ||
+    data.event === 'driver_fanout';
+
+  // The native/Dart handlers read title+body out of the data bag, so they have
+  // to travel there once the `notification` block is gone.
+  const payload = isAlarm ? { ...data, title, body } : data;
+
+  const message: Record<string, unknown> = {
+    token,
+    data: payload,
+    android: {
+      priority: 'high',
+      ...(isAlarm ? {} : { notification: { channel_id: 'cmandili_orders' } }),
+    },
+    apns: {
+      headers: { 'apns-priority': '10' },
+      // Data-only on Android still needs an APNs alert for iOS to surface it,
+      // plus content-available so the app is woken to play the alarm sound.
+      payload: {
+        aps: isAlarm
+          ? { alert: { title, body }, sound: 'new_order.wav', 'content-available': 1 }
+          : { alert: { title, body } },
+      },
+    },
+  };
+  if (!isAlarm) message.notification = { title, body };
+
   await fetch(url, {
     method: 'POST',
     headers: {
       'Authorization': `Bearer ${accessToken}`,
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({
-      message: {
-        token,
-        notification: { title, body },
-        data,
-        android: { priority: 'high' },
-        apns: { headers: { 'apns-priority': '10' } },
-      },
-    }),
+    body: JSON.stringify({ message }),
   });
 }
 
