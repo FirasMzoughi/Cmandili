@@ -22,6 +22,12 @@ String _offerTitle(Map<String, dynamic> order, String partnerName) {
   return 'New delivery';
 }
 
+/// Rough estimate only — no live traffic/routing data, just distance over an
+/// assumed average urban delivery speed. Good enough to give the driver a
+/// ballpark before deciding; deliberately not a real Mapbox-routed ETA (that
+/// would mean an extra HTTP call + API cost on every single offer).
+const double _kAssumedAvgSpeedKmh = 25;
+
 /// "Pizza Margherita x2, et 3 autres" — food/supermarket orders only.
 String? _offerItemsSummary(Map<String, dynamic> order) {
   final orderType = order['order_type'] as String?;
@@ -116,7 +122,8 @@ class _OrderOfferDialogState extends ConsumerState<OrderOfferDialog> {
       try {
         row = await Supabase.instance.client
             .from('orders')
-            .select('id, subtotal, delivery_fee, total, distance_km, '
+            .select('id, subtotal, delivery_fee, total, '
+                'driver_offer_distance_km, driver_offer_is_fallback, '
                 'delivery_address, restaurant_id, supermarket_id, '
                 'loyalty_milestone_type, loyalty_discount_amount, '
                 'order_type, package_description, bill_type, assignment_expires_at, '
@@ -431,7 +438,11 @@ class _OrderOfferDialogState extends ConsumerState<OrderOfferDialog> {
             : '';
     final fee = (order['delivery_fee'] as num?)?.toDouble() ?? 0;
     final total = (order['total'] as num?)?.toDouble() ?? 0;
-    final distanceKm = (order['distance_km'] as num?)?.toDouble();
+    final distanceKm = (order['driver_offer_distance_km'] as num?)?.toDouble();
+    final isFallbackOffer = order['driver_offer_is_fallback'] as bool? ?? false;
+    final etaMinutes = distanceKm != null
+        ? (distanceKm / _kAssumedAvgSpeedKmh * 60).round()
+        : null;
     final addr = order['delivery_address'];
     final addrText = (addr is Map ? (addr['fullAddress'] ?? addr['address'] ?? '') : '') as String;
     final loyaltyMilestoneType = order['loyalty_milestone_type'] as String?;
@@ -475,6 +486,40 @@ class _OrderOfferDialogState extends ConsumerState<OrderOfferDialog> {
             ),
           ),
         ],
+        // Widened-radius offer — shown before the title so it's the first
+        // thing a driver sees before deciding, not something they'd have to
+        // notice buried in the distance pill.
+        if (isFallbackOffer) ...[
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(10),
+            margin: const EdgeInsets.only(bottom: 10),
+            decoration: BoxDecoration(
+              color: Colors.amber.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: Colors.amber.withValues(alpha: 0.35)),
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Icon(Icons.warning_amber_rounded, size: 16, color: Colors.amber),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'Livraison plus éloignée que d\'habitude — vérifiez la '
+                    'distance avant d\'accepter.',
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.amber.shade800,
+                      height: 1.3,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
         Text(
           _offerTitle(order, partnerName.toString()),
           style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 16),
@@ -508,26 +553,41 @@ class _OrderOfferDialogState extends ConsumerState<OrderOfferDialog> {
           ],
         ),
         const SizedBox(height: 8),
-        Row(
+        // Wrap, not Row -- fee + distance + ETA pills together can exceed
+        // the dialog's width on narrower screens (confirmed live: a plain
+        // Row here overflowed by 67px once the ETA pill was added). Wrap
+        // lets a third pill fall to its own line instead of clipping.
+        Wrap(
+          spacing: 6,
+          runSpacing: 6,
+          crossAxisAlignment: WrapCrossAlignment.center,
           children: [
             _Pill(
               icon: Icons.payments_rounded,
               label: '${CurrencyFormatter.formatPrice(fee)} fee',
               color: AppColors.success,
             ),
-            const SizedBox(width: 6),
             if (distanceKm != null)
               _Pill(
                 icon: Icons.route_outlined,
                 label: '${distanceKm.toStringAsFixed(1)} km',
-                color: AppColors.primary,
+                color: isFallbackOffer ? Colors.amber.shade800 : AppColors.primary,
               ),
-            const Spacer(),
-            Text(
-              CurrencyFormatter.formatPrice(total),
-              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-            ),
+            if (etaMinutes != null)
+              _Pill(
+                icon: Icons.access_time_rounded,
+                label: '~$etaMinutes min',
+                color: AppColors.textSecondary,
+              ),
           ],
+        ),
+        const SizedBox(height: 8),
+        Align(
+          alignment: Alignment.centerRight,
+          child: Text(
+            CurrencyFormatter.formatPrice(total),
+            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+          ),
         ),
       ],
     );
