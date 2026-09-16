@@ -5,6 +5,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:cmandili_partner/l10n/app_localizations.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../profile/presentation/profile_screen.dart';
+import '../../profile/presentation/payout_screen.dart';
 import '../../orders/presentation/partner_orders_screen.dart';
 import '../../menu/presentation/menu_screen.dart';
 import '../../reports/presentation/reports_screen.dart';
@@ -754,6 +755,12 @@ class _DashboardTab extends ConsumerWidget {
           ),
         ),
 
+        // Prepaid balance. The platform commission is deducted from this on
+        // every delivered order, and the restaurant stops receiving orders
+        // when it hits zero -- so it belongs on the dashboard, not buried in
+        // the profile tab where it was the only place it appeared.
+        const SliverToBoxAdapter(child: _BalanceCard()),
+
         SliverToBoxAdapter(
           child: Padding(
             padding: const EdgeInsets.fromLTRB(20, 12, 20, 8),
@@ -1080,43 +1087,15 @@ class _DashboardTab extends ConsumerWidget {
         const SizedBox(height: 16),
         const Divider(height: 1),
         const SizedBox(height: 12),
-        Row(
-          children: [
-            Expanded(
-              child: OutlinedButton(
-                onPressed: () => _showRejectDialog(context, ref, order),
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: AppColors.error,
-                  side: const BorderSide(color: AppColors.error),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  padding: const EdgeInsets.symmetric(vertical: 12),
-                ),
-                child: const Text('Refuser'),
-              ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: ElevatedButton(
-                onPressed: () async {
-                  await ref.read(audioAlertServiceProvider).stopAlert();
-                  ref.read(partnerOrderRepositoryProvider).updateOrderStatus(order.id, OrderStatus.confirmed);
-                },
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: AppColors.success,
-                  foregroundColor: Colors.white,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  padding: const EdgeInsets.symmetric(vertical: 12),
-                  elevation: 0,
-                ),
-                child: const Text('Accepter'),
-              ),
-            ),
-          ],
+        _PendingOrderActions(
+          order: order,
+          onReject: () => _showRejectDialog(context, ref, order),
         ),
+      ] else if (_nextStatus(order.status) != null) ...[
+        const SizedBox(height: 16),
+        const Divider(height: 1),
+        const SizedBox(height: 12),
+        _AdvanceStatusButton(order: order, next: _nextStatus(order.status)!),
       ],
     ],
   ),
@@ -1173,5 +1152,369 @@ class _DashboardTab extends ConsumerWidget {
       default:
         return AppColors.textSecondary;
     }
+  }
+}
+
+/// The single status a partner can advance an active order to from the
+/// dashboard card. Mirrors the chain in partner_orders_screen so the two
+/// screens can never disagree about what comes next. Returns null once the
+/// order leaves the partner's hands (ready → the driver takes over) or is
+/// already finished.
+OrderStatus? _nextStatus(OrderStatus current) {
+  switch (current) {
+    case OrderStatus.confirmed:
+      return OrderStatus.preparing;
+    case OrderStatus.preparing:
+      return OrderStatus.ready;
+    default:
+      return null;
+  }
+}
+
+String _actionLabel(OrderStatus next) {
+  switch (next) {
+    case OrderStatus.preparing:
+      return 'Commencer la préparation';
+    case OrderStatus.ready:
+      return 'Marquer comme prête';
+    default:
+      return 'Mettre à jour';
+  }
+}
+
+/// Accept / refuse buttons for a pending order.
+///
+/// Previously the accept handler fired `updateOrderStatus` without awaiting it
+/// and without catching anything. The repository *rethrows* on failure, so a
+/// failed call became an unhandled async error: no spinner, no message, and the
+/// row stayed "Pending" -- which is why tapping once looked like nothing
+/// happened and partners tapped repeatedly. Now the call is awaited, the button
+/// is disabled while it is in flight (so repeat taps can't queue duplicate
+/// writes), and any error is surfaced.
+class _PendingOrderActions extends ConsumerStatefulWidget {
+  final dynamic order;
+  final VoidCallback onReject;
+
+  const _PendingOrderActions({required this.order, required this.onReject});
+
+  @override
+  ConsumerState<_PendingOrderActions> createState() =>
+      _PendingOrderActionsState();
+}
+
+class _PendingOrderActionsState extends ConsumerState<_PendingOrderActions> {
+  bool _busy = false;
+
+  Future<void> _accept() async {
+    if (_busy) return;
+    setState(() => _busy = true);
+    try {
+      await ref.read(audioAlertServiceProvider).stopAlert();
+      await ref
+          .read(partnerOrderRepositoryProvider)
+          .updateOrderStatus(widget.order.id, OrderStatus.confirmed);
+
+      // Re-fetch immediately rather than waiting for the realtime channel to
+      // push the new row. Realtime is best-effort: if the websocket is down or
+      // the event is dropped, waiting on it leaves the spinner running forever
+      // -- which is exactly what made this button look stuck.
+      ref.invalidate(partnerOrdersStreamProvider);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _busy = false);
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          SnackBar(
+            content: Text('Échec de l\'acceptation : $e'),
+            backgroundColor: AppColors.error,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      return;
+    }
+    // Always clear the spinner on success. The card is normally rebuilt
+    // without these buttons once the refreshed list arrives, but it must never
+    // be left spinning if that rebuild doesn't happen.
+    if (mounted) setState(() => _busy = false);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Expanded(
+          child: OutlinedButton(
+            onPressed: _busy ? null : widget.onReject,
+            style: OutlinedButton.styleFrom(
+              foregroundColor: AppColors.error,
+              side: BorderSide(
+                color: _busy ? AppColors.textSecondary : AppColors.error,
+              ),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+              padding: const EdgeInsets.symmetric(vertical: 12),
+            ),
+            child: const Text('Refuser'),
+          ),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: ElevatedButton(
+            onPressed: _busy ? null : _accept,
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.success,
+              foregroundColor: Colors.white,
+              disabledBackgroundColor: AppColors.success.withOpacity(0.5),
+              disabledForegroundColor: Colors.white70,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+              padding: const EdgeInsets.symmetric(vertical: 12),
+              elevation: 0,
+            ),
+            child: _busy
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: Colors.white,
+                    ),
+                  )
+                : const Text('Accepter'),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// Advances an already-accepted order to its next status straight from the
+/// dashboard. Without this the card showed "Preparing" with no control, so the
+/// only way to finish an order was to open it from the Orders tab.
+class _AdvanceStatusButton extends ConsumerStatefulWidget {
+  final dynamic order;
+  final OrderStatus next;
+
+  const _AdvanceStatusButton({required this.order, required this.next});
+
+  @override
+  ConsumerState<_AdvanceStatusButton> createState() =>
+      _AdvanceStatusButtonState();
+}
+
+class _AdvanceStatusButtonState extends ConsumerState<_AdvanceStatusButton> {
+  bool _busy = false;
+
+  Future<void> _advance() async {
+    if (_busy) return;
+    setState(() => _busy = true);
+    try {
+      await ref
+          .read(partnerOrderRepositoryProvider)
+          .updateOrderStatus(widget.order.id, widget.next);
+      ref.invalidate(partnerOrdersStreamProvider);
+      if (mounted) setState(() => _busy = false);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _busy = false);
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          SnackBar(
+            content: Text('Échec de la mise à jour : $e'),
+            backgroundColor: AppColors.error,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: double.infinity,
+      child: ElevatedButton(
+        onPressed: _busy ? null : _advance,
+        style: ElevatedButton.styleFrom(
+          backgroundColor: AppColors.primary,
+          foregroundColor: Colors.white,
+          disabledBackgroundColor: AppColors.primary.withOpacity(0.5),
+          disabledForegroundColor: Colors.white70,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+          padding: const EdgeInsets.symmetric(vertical: 12),
+          elevation: 0,
+        ),
+        child: _busy
+            ? const SizedBox(
+                width: 18,
+                height: 18,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: Colors.white,
+                ),
+              )
+            : Text(
+                _actionLabel(widget.next),
+                style: const TextStyle(fontWeight: FontWeight.w600),
+              ),
+      ),
+    );
+  }
+}
+
+/// Live platform commission rate taken from the restaurant's subtotal, read
+/// from global_settings so the card can never disagree with what the
+/// settlement trigger actually deducts. Falls back to the trigger's own
+/// default (0.10) when the row is missing.
+final _commissionRateProvider = FutureProvider.autoDispose<double>((ref) async {
+  try {
+    final row = await Supabase.instance.client
+        .from('global_settings')
+        .select('setting_value')
+        .eq('setting_key', 'default_restaurant_commission_rate')
+        .maybeSingle();
+    final raw = row?['setting_value'];
+    return double.tryParse('$raw') ?? 0.10;
+  } catch (_) {
+    return 0.10;
+  }
+});
+
+/// Prepaid balance ("solde") on the dashboard.
+///
+/// The owner loads credit onto each restaurant; every delivered cash order
+/// deducts the platform's commission from it, and the restaurant is blocked
+/// from receiving new orders once it reaches zero. Surfacing it here means a
+/// partner sees it dropping before they get cut off.
+class _BalanceCard extends ConsumerWidget {
+  const _BalanceCard();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final balanceAsync = ref.watch(partnerWalletProvider);
+    final rateAsync = ref.watch(_commissionRateProvider);
+
+    return balanceAsync.when(
+      loading: () => const SizedBox.shrink(),
+      error: (_, __) => const SizedBox.shrink(),
+      data: (balance) {
+        final value = balance ?? 0;
+        final blocked = value <= 0;
+        final low = !blocked && value < 20;
+        final accent = blocked
+            ? AppColors.error
+            : low
+                ? AppColors.warning
+                : AppColors.success;
+        final ratePercent =
+            ((rateAsync.value ?? 0.10) * 100).toStringAsFixed(0);
+
+        return Padding(
+          padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
+          child: Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: accent.withOpacity(0.08),
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: accent.withOpacity(0.35)),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: accent.withOpacity(0.15),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Icon(Icons.account_balance_wallet_rounded,
+                          color: accent, size: 22),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Solde',
+                            style: Theme.of(context)
+                                .textTheme
+                                .bodySmall
+                                ?.copyWith(color: AppColors.textSecondary),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            '${value.toStringAsFixed(2)} DT',
+                            style: Theme.of(context)
+                                .textTheme
+                                .headlineSmall
+                                ?.copyWith(
+                                  color: accent,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 10, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: accent.withOpacity(0.15),
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: Text(
+                        '$ratePercent % / commande',
+                        style: TextStyle(
+                          color: accent,
+                          fontWeight: FontWeight.w600,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                if (blocked || low) ...[
+                  const SizedBox(height: 12),
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Icon(
+                        blocked
+                            ? Icons.block_rounded
+                            : Icons.warning_amber_rounded,
+                        color: accent,
+                        size: 18,
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          blocked
+                              ? 'Solde épuisé — vous ne recevez plus de commandes. '
+                                  'Contactez l\'administrateur pour recharger.'
+                              : 'Solde faible — pensez à recharger pour continuer '
+                                  'à recevoir des commandes.',
+                          style: Theme.of(context)
+                              .textTheme
+                              .bodySmall
+                              ?.copyWith(color: accent, height: 1.35),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ],
+            ),
+          ),
+        );
+      },
+    );
   }
 }
