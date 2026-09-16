@@ -758,9 +758,7 @@ class _ActiveDeliveryCard extends StatelessWidget {
                 ),
                 const SizedBox(height: 2),
                 Text(
-                  order.deliveryAddress?.fullAddress ??
-                      order.deliveryAddress?.label ??
-                      '',
+                  orderTitle(order),
                   style: const TextStyle(
                       color: AppColors.textSecondary, fontSize: 13),
                   maxLines: 1,
