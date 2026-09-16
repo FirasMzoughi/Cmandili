@@ -7,7 +7,7 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 // ── Channel IDs ──────────────────────────────────────────────────────────────
-const String _kChannelId   = 'cmandili_orders';
+const String _kChannelId   = 'cmandili_orders_v2';
 const String _kChannelName = 'Order updates';
 const String _kChannelDesc = 'New deliveries and order updates';
 
@@ -69,7 +69,7 @@ Future<void> _showAlarmNotification(
       iOS: const DarwinNotificationDetails(
         presentSound: true,
         // File: Runner/Resources/driver_alarm.wav (max 30 s on iOS).
-        sound: 'new_order.wav',
+        sound: 'new_order.mp3',
         // critical alert: overrides silent/DND on iOS (requires entitlement).
         // Without that entitlement granted by Apple for this app, iOS treats
         // this as a normal alert instead — a platform limit, not a bug here.
@@ -212,11 +212,19 @@ class PushService {
         AndroidFlutterLocalNotificationsPlugin>();
 
     // Standard channel for non-urgent status updates.
+    //
+    // playSound MUST be set explicitly. On Android O+ a channel created without
+    // a sound is created permanently SILENT -- it does not fall back to the
+    // default tone. Application.kt creates this same id with a sound, but
+    // whichever call runs first wins and the channel is then immutable, so a
+    // silent definition here left status notifications with no audio at all.
     await androidPlugin?.createNotificationChannel(const AndroidNotificationChannel(
       _kChannelId,
       _kChannelName,
       description: _kChannelDesc,
       importance: Importance.high,
+      playSound: true,
+      enableVibration: true,
     ));
 
     // Alarm channel for delivery offers.

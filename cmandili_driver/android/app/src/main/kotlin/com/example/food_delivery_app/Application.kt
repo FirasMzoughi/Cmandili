@@ -21,10 +21,16 @@ class Application : FlutterApplication() {
             // list as a dead, permanently-silent duplicate.
             nm.deleteNotificationChannel("cmandili_driver_alarm_2")
 
+            // Same caching rule applies to the standard channel: the installed
+            // "cmandili_orders" was created silent (the Dart side created it
+            // first, without a sound) and cannot be fixed in place, so it is
+            // dropped and re-created under a fresh id.
+            nm.deleteNotificationChannel("cmandili_orders")
+
             // Standard delivery status updates
             nm.createNotificationChannel(
                 NotificationChannel(
-                    "cmandili_orders",
+                    "cmandili_orders_v2",
                     "Order Updates",
                     NotificationManager.IMPORTANCE_HIGH,
                 ).apply {

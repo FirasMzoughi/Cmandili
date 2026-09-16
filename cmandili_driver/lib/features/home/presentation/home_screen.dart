@@ -14,6 +14,7 @@ import '../../orders/presentation/widgets/order_offer_dialog.dart';
 import '../../orders/providers/driver_online_provider.dart';
 import '../../orders/providers/driver_orders_provider.dart';
 import '../../profile/presentation/profile_screen.dart';
+import '../../profile/presentation/driver_payout_screen.dart';
 import '../../earnings/presentation/earnings_screen.dart';
 
 class HomeScreen extends ConsumerStatefulWidget {
@@ -549,6 +550,11 @@ class _DashboardTabState extends ConsumerState<_DashboardTab> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  // Prepaid balance. The platform's commission is deducted from
+                  // this on every delivered cash order, and the driver stops
+                  // receiving offers when it runs out -- so it belongs on the
+                  // dashboard, not only in the payout screen.
+                  const _BalanceCard(),
                   if (hasActive) ...[
                     Text(l.activeDelivery,
                         style: Theme.of(context)
@@ -979,6 +985,159 @@ class _OnlineStatusPill extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// Live platform commission rate taken from the driver's delivery fee, read
+/// from global_settings so this card can never disagree with what the
+/// settlement trigger actually deducts. Falls back to the trigger's own
+/// default (0.23) when the row is missing.
+final _driverCommissionRateProvider =
+    FutureProvider.autoDispose<double>((ref) async {
+  try {
+    final row = await Supabase.instance.client
+        .from('global_settings')
+        .select('setting_value')
+        .eq('setting_key', 'default_driver_commission_rate')
+        .maybeSingle();
+    final raw = row?['setting_value'];
+    return double.tryParse('$raw') ?? 0.23;
+  } catch (_) {
+    return 0.23;
+  }
+});
+
+/// Prepaid balance ("solde") on the driver dashboard.
+///
+/// The admin loads credit onto each driver; every delivered cash order deducts
+/// the platform's commission from it, and the driver stops receiving offers
+/// once it reaches zero. Surfacing it here means a driver sees it dropping
+/// before they get cut off mid-shift.
+class _BalanceCard extends ConsumerWidget {
+  const _BalanceCard();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final balanceAsync = ref.watch(driverWalletProvider);
+    final rateAsync = ref.watch(_driverCommissionRateProvider);
+
+    return balanceAsync.when(
+      loading: () => const SizedBox.shrink(),
+      error: (_, __) => const SizedBox.shrink(),
+      data: (balance) {
+        final value = balance ?? 0;
+        final blocked = value <= 0;
+        final low = !blocked && value < 20;
+        final accent = blocked
+            ? AppColors.error
+            : low
+                ? AppColors.warning
+                : AppColors.success;
+        final ratePercent =
+            ((rateAsync.value ?? 0.23) * 100).toStringAsFixed(0);
+
+        return Padding(
+          padding: const EdgeInsets.only(bottom: 24),
+          child: Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: accent.withValues(alpha: 0.08),
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: accent.withValues(alpha: 0.35)),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: accent.withValues(alpha: 0.15),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Icon(Icons.account_balance_wallet_rounded,
+                          color: accent, size: 22),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Solde',
+                            style: Theme.of(context)
+                                .textTheme
+                                .bodySmall
+                                ?.copyWith(color: AppColors.textSecondary),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            '${value.toStringAsFixed(2)} DT',
+                            style: Theme.of(context)
+                                .textTheme
+                                .headlineSmall
+                                ?.copyWith(
+                                  color: accent,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 10, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: accent.withValues(alpha: 0.15),
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: Text(
+                        '$ratePercent % / livraison',
+                        style: TextStyle(
+                          color: accent,
+                          fontWeight: FontWeight.w600,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                if (blocked || low) ...[
+                  const SizedBox(height: 12),
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Icon(
+                        blocked
+                            ? Icons.block_rounded
+                            : Icons.warning_amber_rounded,
+                        color: accent,
+                        size: 18,
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          blocked
+                              ? 'Solde epuise - vous ne recevez plus de livraisons. '
+                                  'Contactez l administrateur pour recharger.'
+                              : 'Solde faible - pensez a recharger pour continuer '
+                                  'a recevoir des livraisons.',
+                          style: Theme.of(context)
+                              .textTheme
+                              .bodySmall
+                              ?.copyWith(color: accent, height: 1.35),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
 }

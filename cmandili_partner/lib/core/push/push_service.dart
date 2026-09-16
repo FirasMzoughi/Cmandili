@@ -7,7 +7,7 @@ import 'notification_navigation.dart';
 
 // ── Channel IDs ──────────────────────────────────────────────────────────────
 // Standard order-status updates (confirmed, preparing, etc.)
-const String _kChannelId   = 'cmandili_orders';
+const String _kChannelId   = 'cmandili_orders_v2';
 const String _kChannelName = 'Order updates';
 const String _kChannelDesc = 'Notifications about your orders';
 
@@ -91,7 +91,7 @@ Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
       iOS: const DarwinNotificationDetails(
         presentSound: true,
         // File must be bundled in Runner/Resources/ — 30-second max on iOS.
-        sound: 'new_order.wav',
+        sound: 'new_order.mp3',
         interruptionLevel: InterruptionLevel.critical,
       ),
     ),
@@ -150,11 +150,19 @@ class PushService {
           AndroidFlutterLocalNotificationsPlugin>();
 
       // Standard channel for non-urgent status updates.
+      //
+      // playSound MUST be set explicitly. On Android O+ a channel created
+      // without a sound is created permanently SILENT -- it does not fall back
+      // to the default tone. Application.kt creates this same id with a sound,
+      // but whichever call runs first wins and the channel is then immutable,
+      // so a silent definition here left status notifications with no audio.
       await androidPlugin?.createNotificationChannel(const AndroidNotificationChannel(
         _kChannelId,
         _kChannelName,
         description: _kChannelDesc,
         importance: Importance.high,
+        playSound: true,
+        enableVibration: true,
       ));
 
       // Alarm channel for new orders. Created here AND in the background handler
@@ -272,7 +280,7 @@ class PushService {
         ),
         iOS: DarwinNotificationDetails(
           presentSound: true,
-          sound: isNewOrder ? 'new_order.wav' : null,
+          sound: isNewOrder ? 'new_order.mp3' : null,
           interruptionLevel: isNewOrder
               ? InterruptionLevel.critical
               : InterruptionLevel.active,

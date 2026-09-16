@@ -14,10 +14,17 @@ class Application : FlutterApplication() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val nm = getSystemService(NotificationManager::class.java)
 
+            // Android caches a channel's sound at creation and ignores every
+            // later edit to the same id, so the already-installed, permanently
+            // silent "cmandili_orders" cannot be repaired in place -- it has to
+            // be re-created under a fresh id. Drop the stale one so it doesn't
+            // linger in system settings as a dead silent duplicate.
+            nm.deleteNotificationChannel("cmandili_orders")
+
             // Standard order status updates
             nm.createNotificationChannel(
                 NotificationChannel(
-                    "cmandili_orders",
+                    "cmandili_orders_v2",
                     "Order Updates",
                     NotificationManager.IMPORTANCE_HIGH,
                 ).apply {

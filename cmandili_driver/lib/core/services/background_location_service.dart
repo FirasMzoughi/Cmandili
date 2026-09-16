@@ -248,7 +248,7 @@ void _onStart(ServiceInstance service) async {
           ),
           iOS: const DarwinNotificationDetails(
             presentSound: true,
-            sound: 'new_order.wav',
+            sound: 'new_order.mp3',
             interruptionLevel: InterruptionLevel.critical,
           ),
         ),

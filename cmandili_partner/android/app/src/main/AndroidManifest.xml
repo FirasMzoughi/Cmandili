@@ -50,7 +50,7 @@
              Must match the channel created by flutter_local_notifications below. -->
         <meta-data
             android:name="com.google.firebase.messaging.default_notification_channel_id"
-            android:value="cmandili_orders" />
+            android:value="cmandili_orders_v2" />
         <!-- Default icon used when the OS renders an FCM notification while the
              app is killed. Without this, Android silently drops the notification
              because the small-icon resource can't be resolved from the dead
