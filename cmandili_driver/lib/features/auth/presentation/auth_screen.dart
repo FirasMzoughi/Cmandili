@@ -2,10 +2,37 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/theme/app_colors.dart';
+import '../../../core/widgets/tunisia_phone_field.dart';
 import '../providers/auth_provider.dart';
 import 'package:cmandili_driver/l10n/app_localizations.dart';
 import '../../../core/providers/localization_provider.dart';
 import 'forgot_password_screen.dart';
+
+/// Maps a raw auth exception (e.g. the Supabase client's
+/// `AuthApiException(message: Invalid login credentials, statusCode: 400,
+/// code: invalid_credentials)`) to a short message a driver can actually
+/// act on. Matched on the exception's own toString() rather than importing
+/// the exception type, since the client only needs a handful of known
+/// substrings and this keeps the check trivially portable.
+String friendlyAuthErrorMessage(Object e) {
+  final raw = e.toString().toLowerCase();
+  if (raw.contains('invalid login credentials') || raw.contains('invalid_credentials')) {
+    return 'Email ou mot de passe incorrect';
+  }
+  if (raw.contains('user already registered') || raw.contains('already registered')) {
+    return 'Un compte existe déjà avec cet email';
+  }
+  if (raw.contains('email not confirmed')) {
+    return 'Veuillez confirmer votre email avant de vous connecter';
+  }
+  if (raw.contains('password') && raw.contains('6 characters')) {
+    return 'Le mot de passe doit contenir au moins 6 caractères';
+  }
+  if (raw.contains('socketexception') || raw.contains('network') || raw.contains('connection')) {
+    return 'Problème de connexion internet';
+  }
+  return 'Une erreur est survenue, veuillez réessayer';
+}
 
 class AuthScreen extends ConsumerStatefulWidget {
   const AuthScreen({super.key});
@@ -111,14 +138,14 @@ class _AuthScreenState extends ConsumerState<AuthScreen>
           _emailController.text.trim(),
           _passwordController.text,
           _nameController.text.trim(),
-          _phoneController.text.trim(),
+          TunisiaPhoneField.normalize(_phoneController),
         );
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(e.toString()),
+            content: Text(friendlyAuthErrorMessage(e)),
             backgroundColor: AppColors.error,
             behavior: SnackBarBehavior.floating,
           ),
@@ -139,7 +166,7 @@ class _AuthScreenState extends ConsumerState<AuthScreen>
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(e.toString()),
+            content: Text(friendlyAuthErrorMessage(e)),
             backgroundColor: AppColors.error,
             behavior: SnackBarBehavior.floating,
           ),
@@ -159,6 +186,9 @@ class _AuthScreenState extends ConsumerState<AuthScreen>
     final screenWidth = size.width;
 
     return Scaffold(
+      // Required (and already Flutter's default) so the body actually shrinks
+      // when the keyboard opens — the fix below reacts to that shrink.
+      resizeToAvoidBottomInset: true,
       body: Stack(
         children: [
           // Animated Background with Gradient
@@ -297,7 +327,21 @@ class _AuthScreenState extends ConsumerState<AuthScreen>
                 top: screenHeight * 0.06, // Extra padding to avoid status bar
                 bottom: screenHeight * 0.02,
               ),
-              child: Column(
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  // minHeight reproduces today's spaceBetween look whenever the
+                  // full viewport is available. When the keyboard opens, Scaffold
+                  // shrinks constraints.maxHeight; IntrinsicHeight then lets the
+                  // Column grow past that height instead of overflowing, and
+                  // SingleChildScrollView scrolls the rest instead of clipping it.
+                  // Driven by the actual measured constraints rather than a
+                  // hardcoded keyboard height, so it holds across screen sizes
+                  // and both portrait/landscape.
+                  return SingleChildScrollView(
+                    child: ConstrainedBox(
+                      constraints: BoxConstraints(minHeight: constraints.maxHeight),
+                      child: IntrinsicHeight(
+                        child: Column(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   // Logo and Title
@@ -440,13 +484,10 @@ class _AuthScreenState extends ConsumerState<AuthScreen>
                                           screenHeight: screenHeight,
                                         ),
                                         SizedBox(height: screenHeight * 0.015),
-                                        _buildTextField(
+                                        TunisiaPhoneField(
                                           controller: _phoneController,
                                           label: AppLocalizations.of(context)!.phoneNumberLabel,
-                                          icon: Icons.phone_outlined,
-                                          keyboardType: TextInputType.phone,
-                                          screenWidth: screenWidth,
-                                          screenHeight: screenHeight,
+                                          invalidMessage: AppLocalizations.of(context)!.phoneInvalid,
                                         ),
                                         SizedBox(height: screenHeight * 0.015),
                                       ],
@@ -616,6 +657,11 @@ class _AuthScreenState extends ConsumerState<AuthScreen>
                   
                   SizedBox(height: screenHeight * 0.01),
                 ],
+              ),
+                      ),
+                    ),
+                  );
+                },
               ),
             ),
           ),

@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
 import '../../../core/theme/app_colors.dart';
+import '../../../core/widgets/tunisia_phone_field.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../data/profile_repository.dart';
 import 'package:cmandili_driver/l10n/app_localizations.dart';
@@ -41,7 +42,8 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
     if (!mounted || profile == null) return;
     setState(() {
       _nameController.text = profile['full_name'] as String? ?? _nameController.text;
-      _phoneController.text = profile['phone'] as String? ?? '';
+      _phoneController.text =
+          TunisiaPhoneField.toLocalDigits(profile['phone'] as String?);
     });
   }
 
@@ -56,7 +58,7 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
 
   Future<void> _pickImage() async {
     final pickedFile = await _picker.pickImage(source: ImageSource.gallery);
-    if (pickedFile != null) {
+    if (pickedFile != null && mounted) {
       setState(() {
         _imageFile = File(pickedFile.path);
       });
@@ -68,7 +70,7 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
     setState(() => _isSaving = true);
     final success = await _profileRepo.updateProfile(
       fullName: _nameController.text.trim(),
-      phone: _phoneController.text.trim(),
+      phone: TunisiaPhoneField.normalize(_phoneController),
     );
     if (!mounted) return;
     setState(() => _isSaving = false);
@@ -169,11 +171,11 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
               ),
               SizedBox(height: size.height * 0.02),
 
-              _buildTextField(
+              TunisiaPhoneField(
                 controller: _phoneController,
                 label: l.phoneNumberLabel,
-                icon: Icons.phone_outlined,
-                keyboardType: TextInputType.phone,
+                invalidMessage: l.phoneInvalid,
+                required: false,
               ),
               SizedBox(height: size.height * 0.02),
 
