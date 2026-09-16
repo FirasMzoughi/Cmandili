@@ -33,9 +33,23 @@ class _OrderTrackingScreenState extends ConsumerState<OrderTrackingScreen> {
   StreamSubscription? _deliveryStream;
   double? _myLat;
   double? _myLng;
+  // Heading in degrees, derived from the last two GPS fixes so the driver's
+  // own marker visibly points the direction they're moving — same live cue
+  // the client app now shows for the driver's marker on their side.
+  double? _myBearing;
   String? _activeDeliveryId;
   bool _uploadingReceipt = false;
   final _supabase = Supabase.instance.client;
+
+  // Restaurant/supermarket pickup coordinates — resolved once per order
+  // (food/supermarket orders only; courier/facture already carry their own
+  // pickupAddress on the order row). Without this the driver's map never
+  // showed WHERE to pick the order up from, only the delivery address.
+  double? _pickupLat;
+  double? _pickupLng;
+  String? _pickupName;
+  String? _pickupFetchedForOrderId;
+  bool _boundsFitted = false;
 
   @override
   void initState() {
@@ -44,6 +58,44 @@ class _OrderTrackingScreenState extends ConsumerState<OrderTrackingScreen> {
     // This prevents the race condition where early GPS updates are discarded
     // because _activeDeliveryId is still null.
     _subscribeToDelivery().then((_) => _startLocationTracking());
+  }
+
+  /// Resolves the restaurant/supermarket's lat/lng + name once per order, so
+  /// the map can show a pickup marker for standard food/supermarket
+  /// deliveries (previously only courier/facture orders — which carry their
+  /// own pickupAddress — ever showed a pickup pin at all).
+  Future<void> _fetchPickupLocation(Order order) async {
+    if (_pickupFetchedForOrderId == order.id) return;
+    _pickupFetchedForOrderId = order.id;
+    try {
+      if (order.restaurantId.isNotEmpty) {
+        final r = await _supabase
+            .from('restaurants')
+            .select('name, latitude, longitude')
+            .eq('id', order.restaurantId)
+            .maybeSingle();
+        if (r == null || !mounted) return;
+        setState(() {
+          _pickupLat = (r['latitude'] as num?)?.toDouble();
+          _pickupLng = (r['longitude'] as num?)?.toDouble();
+          _pickupName = r['name'] as String?;
+        });
+      } else if (order.supermarketId.isNotEmpty) {
+        final s = await _supabase
+            .from('supermarkets')
+            .select('name, latitude, longitude')
+            .eq('id', order.supermarketId)
+            .maybeSingle();
+        if (s == null || !mounted) return;
+        setState(() {
+          _pickupLat = (s['latitude'] as num?)?.toDouble();
+          _pickupLng = (s['longitude'] as num?)?.toDouble();
+          _pickupName = s['name'] as String?;
+        });
+      }
+    } catch (e) {
+      debugPrint('Failed to fetch pickup location: $e');
+    }
   }
 
   Future<void> _startLocationTracking() async {
@@ -60,9 +112,24 @@ class _OrderTrackingScreenState extends ConsumerState<OrderTrackingScreen> {
       ),
     ).listen((pos) async {
       if (!mounted) return;
+      // Prefer the device's own GPS-derived heading (more accurate, updates
+      // even between distanceFilter-gated position changes); fall back to a
+      // bearing computed from the last two fixes when the device reports an
+      // invalid heading (some devices report 0 while stationary, which
+      // Geolocator can't distinguish from "genuinely facing north").
+      double? bearing = (pos.heading >= 0 && pos.heading <= 360 && pos.headingAccuracy >= 0)
+          ? pos.heading
+          : null;
+      if (bearing == null && _myLat != null && _myLng != null) {
+        bearing = bearingBetween(
+          (lat: _myLat!, lng: _myLng!),
+          (lat: pos.latitude, lng: pos.longitude),
+        );
+      }
       setState(() {
         _myLat = pos.latitude;
         _myLng = pos.longitude;
+        _myBearing = bearing ?? _myBearing;
       });
       _mapController.animateToPoint(pos.latitude, pos.longitude);
 
@@ -293,15 +360,6 @@ class _OrderTrackingScreenState extends ConsumerState<OrderTrackingScreen> {
     );
   }
 
-  String _billTypeLabel(String? type) {
-    return switch (type?.toLowerCase()) {
-      'topnet' => '🌐 Topnet',
-      'steg'   => '⚡ STEG',
-      'sonede' => '💧 SONEDE',
-      _        => '🧾 Autre',
-    };
-  }
-
   bool _isFacture(Order order) =>
       order.type == OrderType.facture || order.type == OrderType.billPayment;
 
@@ -312,10 +370,43 @@ class _OrderTrackingScreenState extends ConsumerState<OrderTrackingScreen> {
     final deliveryLat = order.deliveryAddress.latitude;
     final deliveryLng = order.deliveryAddress.longitude;
 
+    // Facture orders carry their own pickupAddress (the customer's place,
+    // where cash is collected) directly on the order row. Standard food/
+    // supermarket orders don't — their pickup point is the restaurant/
+    // supermarket, resolved separately via _fetchPickupLocation since the
+    // order row only has the id, not coordinates.
+    final double? pickupLat = isFacture ? order.pickupAddress?.latitude : _pickupLat;
+    final double? pickupLng = isFacture ? order.pickupAddress?.longitude : _pickupLng;
+    final String pickupTitle = isFacture ? 'Chez le client' : (_pickupName ?? 'Point de retrait');
+    final hasPickup = pickupLat != null && pickupLng != null;
+
+    if (!isFacture) {
+      // Fire-and-forget; the setState inside repaints once resolved.
+      _fetchPickupLocation(order);
+    }
+
+    // Frame pickup + delivery + driver (whichever are known) once, on first
+    // paint with a real driver fix, so the driver immediately sees both the
+    // restaurant/client positions relative to themself instead of a map
+    // centered arbitrarily. Mirrors the client app's own tracking screen.
+    if (hasLocation && !_boundsFitted) {
+      _boundsFitted = true;
+      final points = <({double lat, double lng})>[
+        (lat: _myLat!, lng: _myLng!),
+        (lat: deliveryLat, lng: deliveryLng),
+        if (hasPickup) (lat: pickupLat, lng: pickupLng),
+      ];
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _mapController.fitBounds(points);
+      });
+    }
+
     return Scaffold(
       body: Stack(
         children: [
-          // Map — for facture orders show both customer address and bill office
+          // Map — shows the driver's live position, the delivery/client
+          // address, and (once resolved) the restaurant/supermarket pickup
+          // point for standard orders or the customer's place for factures.
           AppMap(
             controller: _mapController,
             initialLatitude: hasLocation ? _myLat! : deliveryLat,
@@ -330,13 +421,13 @@ class _OrderTrackingScreenState extends ConsumerState<OrderTrackingScreen> {
                 kind: AppMapMarkerKind.delivery,
                 title: isFacture ? 'Bureau de paiement' : l.deliveryLocation,
               ),
-              if (isFacture && order.pickupAddress != null)
+              if (hasPickup)
                 AppMapMarker(
                   id: 'pickup',
-                  latitude: order.pickupAddress!.latitude,
-                  longitude: order.pickupAddress!.longitude,
+                  latitude: pickupLat,
+                  longitude: pickupLng,
                   kind: AppMapMarkerKind.pickup,
-                  title: 'Chez le client',
+                  title: pickupTitle,
                 ),
               if (hasLocation)
                 AppMapMarker(
@@ -345,9 +436,36 @@ class _OrderTrackingScreenState extends ConsumerState<OrderTrackingScreen> {
                   longitude: _myLng!,
                   kind: AppMapMarkerKind.driver,
                   title: l.you,
+                  bearing: _myBearing,
                 ),
             },
           ),
+
+          // Recenter button — frames pickup + delivery + driver again, same
+          // set of points as the initial auto-fit above.
+          if (hasLocation)
+            Positioned(
+              right: 16,
+              bottom: MediaQuery.of(context).size.height * 0.4 + 16,
+              child: Material(
+                color: Colors.white,
+                shape: const CircleBorder(),
+                elevation: 4,
+                shadowColor: Colors.black.withValues(alpha: 0.2),
+                child: InkWell(
+                  customBorder: const CircleBorder(),
+                  onTap: () => _mapController.fitBounds([
+                    (lat: _myLat!, lng: _myLng!),
+                    (lat: deliveryLat, lng: deliveryLng),
+                    if (hasPickup) (lat: pickupLat, lng: pickupLng),
+                  ]),
+                  child: const Padding(
+                    padding: EdgeInsets.all(12),
+                    child: Icon(Icons.my_location_rounded, color: AppColors.primary, size: 22),
+                  ),
+                ),
+              ),
+            ),
 
           // Top back button
           SafeArea(

@@ -695,7 +695,7 @@ class _MenuItemCardState extends ConsumerState<_MenuItemCard> {
                         originalPrice: price,
                         isGrocery: !widget.isRestaurant,
                         currentDiscountPrice: discountPrice,
-                        currentEndTime: discountEndTime != null ? DateTime.tryParse(discountEndTime!) : null,
+                        currentEndTime: discountEndTime != null ? DateTime.tryParse(discountEndTime) : null,
                         currentQuantity: discountQuantity,
                       ),
                     ),

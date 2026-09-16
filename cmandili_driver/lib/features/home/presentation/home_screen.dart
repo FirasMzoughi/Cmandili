@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:geocoding/geocoding.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:cmandili_driver/l10n/app_localizations.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/widgets/app_map.dart';
@@ -22,9 +23,11 @@ class HomeScreen extends ConsumerStatefulWidget {
   ConsumerState<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends ConsumerState<HomeScreen> {
+class _HomeScreenState extends ConsumerState<HomeScreen>
+    with WidgetsBindingObserver {
   int _selectedIndex = 0;
   StreamSubscription<OrderOffer>? _offerSub;
+  StreamSubscription<List<Map<String, dynamic>>>? _realtimeOfferSub;
   bool _offerOpen = false; // guards against stacking dialogs on rapid pushes
 
   @override
@@ -35,12 +38,95 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     // and the home screen lives for the duration of the authenticated
     // session, matching the lifetime we want for the listener.
     _offerSub = PushService.instance.offerStream.listen(_onOffer);
+
+    // offerStream only fires for a TRUE-foreground FCM message (onMessage)
+    // or an explicit notification tap — the background isolate that handles
+    // a backgrounded/terminated app can only show a system notification, it
+    // has no way to reach this isolate's stream. A driver who opens the app
+    // normally (home-screen icon) instead of tapping the notification would
+    // otherwise never see the offer at all. Cover that gap by checking for
+    // a still-valid pending offer on cold start and on every resume.
+    WidgetsBinding.instance.addObserver(this);
+    _checkForPendingOffer();
+    // A parcel broadcast has no per-driver expiry to silence it automatically
+    // (see cancelParcelAlarm's own comment) — stop it as soon as the driver
+    // actually looks at the app, cold start or resume alike.
+    PushService.instance.cancelParcelAlarm();
+
+    // Neither of the two paths above catches the case where the driver is
+    // ALREADY sitting on this screen, in the foreground, doing nothing, when
+    // an offer is assigned — offerStream needs a real FCM delivery (which we
+    // already know is unreliable on some OEM/MIUI devices), and the resume
+    // check only fires on a background→foreground transition. Subscribe to
+    // Realtime directly on the orders row itself so a driver already staring
+    // at the app sees the dialog appear on its own, no push and no
+    // background/foreground cycle required.
+    _subscribeToOfferChanges();
+  }
+
+  Future<void> _subscribeToOfferChanges() async {
+    final driverId = await ref.read(currentDriverIdProvider.future);
+    if (driverId == null || !mounted) return;
+    _realtimeOfferSub = Supabase.instance.client
+        .from('orders')
+        .stream(primaryKey: ['id'])
+        .eq('assigned_driver_id', driverId)
+        .listen((rows) {
+      final nowUtc = DateTime.now().toUtc();
+      for (final row in rows) {
+        if (row['driver_id'] != null) continue; // already accepted
+        final expiresAt = row['assignment_expires_at'] as String?;
+        if (expiresAt == null) continue;
+        if (DateTime.parse(expiresAt).isAfter(nowUtc)) {
+          _onOffer(OrderOffer(
+              orderId: row['id'] as String, receivedAt: DateTime.now()));
+          return;
+        }
+      }
+    });
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _offerSub?.cancel();
+    _realtimeOfferSub?.cancel();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _checkForPendingOffer();
+      PushService.instance.cancelParcelAlarm();
+    }
+  }
+
+  Future<void> _checkForPendingOffer() async {
+    try {
+      final driverId = await ref.read(currentDriverIdProvider.future);
+      if (driverId == null) return;
+      final rows = await Supabase.instance.client
+          .from('orders')
+          .select('id, driver_id, assignment_expires_at')
+          .eq('assigned_driver_id', driverId)
+          .order('created_at', ascending: false)
+          .limit(5);
+      final nowUtc = DateTime.now().toUtc();
+      for (final row in (rows as List).cast<Map<String, dynamic>>()) {
+        if (row['driver_id'] != null)
+          continue; // already accepted, not an offer
+        final expiresAt = row['assignment_expires_at'] as String?;
+        if (expiresAt == null) continue;
+        if (DateTime.parse(expiresAt).isAfter(nowUtc)) {
+          _onOffer(OrderOffer(
+              orderId: row['id'] as String, receivedAt: DateTime.now()));
+          return;
+        }
+      }
+    } catch (_) {
+      // Best-effort recovery check — the push itself is the primary path.
+    }
   }
 
   Future<void> _onOffer(OrderOffer offer) async {
@@ -52,14 +138,16 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         barrierDismissible: false,
         builder: (_) => OrderOfferDialog(orderId: offer.orderId),
       );
-      // On accept, jump to the orders tab so the driver sees the offer card
-      // in context and can tap "Accept Order" — the existing accept flow
-      // (delivery row + driver_id) is unchanged.
+      // OrderOfferDialog now performs the real accept itself (driver_id
+      // claim + deliveries row + GPS tracking start) before popping true,
+      // so by this point the order is genuinely this driver's active
+      // delivery — take them straight to it.
       if (accepted == true && mounted) {
-        setState(() => _selectedIndex = 1);
-        // Force the available-orders list to refresh in case streaming hasn't
-        // surfaced the assigned order yet.
-        ref.invalidate(availableOrdersProvider);
+        Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (_) => OrderTrackingScreen(orderId: offer.orderId),
+          ),
+        );
       }
     } finally {
       _offerOpen = false;
@@ -78,11 +166,14 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       activeDeliveryAsync.when(
         data: (order) => order != null
             ? OrderTrackingScreen(orderId: order.id)
-            : _NoActiveDelivery(onBrowse: () => setState(() => _selectedIndex = 1)),
-        loading: () => const Scaffold(body: Center(child: CircularProgressIndicator())),
-        error: (_, __) => _NoActiveDelivery(onBrowse: () => setState(() => _selectedIndex = 1)),
+            : _NoActiveDelivery(
+                onBrowse: () => setState(() => _selectedIndex = 1)),
+        loading: () =>
+            const Scaffold(body: Center(child: CircularProgressIndicator())),
+        error: (_, __) => _NoActiveDelivery(
+            onBrowse: () => setState(() => _selectedIndex = 1)),
       ),
-      const EarningsScreen(),
+      EarningsScreen(isActive: _selectedIndex == 3),
       const ProfileScreen(),
     ];
 
@@ -106,11 +197,36 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              _NavItem(index: 0, icon: Icons.dashboard_rounded, label: l.home, selected: _selectedIndex == 0, onTap: () => setState(() => _selectedIndex = 0)),
-              _NavItem(index: 1, icon: Icons.delivery_dining_rounded, label: l.orders, selected: _selectedIndex == 1, onTap: () => setState(() => _selectedIndex = 1)),
-              _NavItem(index: 2, icon: Icons.navigation_rounded, label: l.active, selected: _selectedIndex == 2, onTap: () => setState(() => _selectedIndex = 2)),
-              _NavItem(index: 3, icon: Icons.account_balance_wallet_rounded, label: l.earnings, selected: _selectedIndex == 3, onTap: () => setState(() => _selectedIndex = 3)),
-              _NavItem(index: 4, icon: Icons.person_rounded, label: l.profile, selected: _selectedIndex == 4, onTap: () => setState(() => _selectedIndex = 4)),
+              _NavItem(
+                  index: 0,
+                  icon: Icons.dashboard_rounded,
+                  label: l.home,
+                  selected: _selectedIndex == 0,
+                  onTap: () => setState(() => _selectedIndex = 0)),
+              _NavItem(
+                  index: 1,
+                  icon: Icons.delivery_dining_rounded,
+                  label: l.orders,
+                  selected: _selectedIndex == 1,
+                  onTap: () => setState(() => _selectedIndex = 1)),
+              _NavItem(
+                  index: 2,
+                  icon: Icons.navigation_rounded,
+                  label: l.active,
+                  selected: _selectedIndex == 2,
+                  onTap: () => setState(() => _selectedIndex = 2)),
+              _NavItem(
+                  index: 3,
+                  icon: Icons.account_balance_wallet_rounded,
+                  label: l.earnings,
+                  selected: _selectedIndex == 3,
+                  onTap: () => setState(() => _selectedIndex = 3)),
+              _NavItem(
+                  index: 4,
+                  icon: Icons.person_rounded,
+                  label: l.profile,
+                  selected: _selectedIndex == 4,
+                  onTap: () => setState(() => _selectedIndex = 4)),
             ],
           ),
         ),
@@ -126,7 +242,12 @@ class _NavItem extends StatelessWidget {
   final bool selected;
   final VoidCallback onTap;
 
-  const _NavItem({required this.index, required this.icon, required this.label, required this.selected, required this.onTap});
+  const _NavItem(
+      {required this.index,
+      required this.icon,
+      required this.label,
+      required this.selected,
+      required this.onTap});
 
   @override
   Widget build(BuildContext context) {
@@ -137,13 +258,17 @@ class _NavItem extends StatelessWidget {
           duration: const Duration(milliseconds: 200),
           padding: const EdgeInsets.symmetric(vertical: 10),
           decoration: BoxDecoration(
-            color: selected ? AppColors.primary.withOpacity(0.12) : Colors.transparent,
+            color: selected
+                ? AppColors.primary.withOpacity(0.12)
+                : Colors.transparent,
             borderRadius: BorderRadius.circular(16),
           ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(icon, color: selected ? AppColors.primary : AppColors.textSecondary),
+              Icon(icon,
+                  color:
+                      selected ? AppColors.primary : AppColors.textSecondary),
               const SizedBox(height: 4),
               Text(
                 label,
@@ -200,7 +325,9 @@ class _DashboardTabState extends ConsumerState<_DashboardTab> {
     // Verify the OS-level location switch is on. If not, GPS will return
     // a useless fallback (or nothing) — surface that to the user.
     if (!await Geolocator.isLocationServiceEnabled()) {
-      if (mounted) setState(() => _locationError = AppLocalizations.of(context)!.locationOff);
+      if (mounted)
+        setState(
+            () => _locationError = AppLocalizations.of(context)!.locationOff);
       return;
     }
 
@@ -210,7 +337,9 @@ class _DashboardTabState extends ConsumerState<_DashboardTab> {
     }
     if (permission == LocationPermission.denied ||
         permission == LocationPermission.deniedForever) {
-      if (mounted) setState(() => _locationError = AppLocalizations.of(context)!.locationDeniedSettings);
+      if (mounted)
+        setState(() => _locationError =
+            AppLocalizations.of(context)!.locationDeniedSettings);
       return;
     }
 
@@ -254,7 +383,10 @@ class _DashboardTabState extends ConsumerState<_DashboardTab> {
   Future<void> _maybeResolveAddress(double lat, double lng) async {
     if (_lastGeocodedLat != null && _lastGeocodedLng != null) {
       final movedMeters = Geolocator.distanceBetween(
-        _lastGeocodedLat!, _lastGeocodedLng!, lat, lng,
+        _lastGeocodedLat!,
+        _lastGeocodedLng!,
+        lat,
+        lng,
       );
       if (movedMeters < 100) return;
     }
@@ -338,7 +470,10 @@ class _DashboardTabState extends ConsumerState<_DashboardTab> {
                             Expanded(
                               child: Text(
                                 l.driverDashboard,
-                                style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                                style: Theme.of(context)
+                                    .textTheme
+                                    .titleLarge
+                                    ?.copyWith(
                                       color: Colors.white,
                                       fontWeight: FontWeight.w700,
                                     ),
@@ -352,8 +487,9 @@ class _DashboardTabState extends ConsumerState<_DashboardTab> {
                               activeTrackColor: Colors.green.shade400,
                               inactiveThumbColor: Colors.white,
                               inactiveTrackColor: Colors.white24,
-                              onChanged: (next) =>
-                                  ref.read(driverOnlineProvider.notifier).setOnline(next),
+                              onChanged: (next) => ref
+                                  .read(driverOnlineProvider.notifier)
+                                  .setOnline(next),
                             ),
                           ],
                         ),
@@ -361,19 +497,26 @@ class _DashboardTabState extends ConsumerState<_DashboardTab> {
                         Text(
                           hasActive
                               ? l.youHaveActiveDelivery
-                              : (isOnline ? l.readyForOrders : l.youreOfflineFlip),
-                          style: const TextStyle(color: Colors.white70, fontSize: 14),
+                              : (isOnline
+                                  ? l.readyForOrders
+                                  : l.youreOfflineFlip),
+                          style: const TextStyle(
+                              color: Colors.white70, fontSize: 14),
                         ),
                         if (_cityName != null) ...[
                           const SizedBox(height: 6),
                           Row(
                             children: [
-                              const Icon(Icons.place_outlined, size: 14, color: Colors.white70),
+                              const Icon(Icons.place_outlined,
+                                  size: 14, color: Colors.white70),
                               const SizedBox(width: 4),
                               Flexible(
                                 child: Text(
                                   _cityName!,
-                                  style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w600),
+                                  style: const TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w600),
                                   overflow: TextOverflow.ellipsis,
                                 ),
                               ),
@@ -383,11 +526,14 @@ class _DashboardTabState extends ConsumerState<_DashboardTab> {
                         const Spacer(),
                         Row(
                           children: [
-                            _HeaderStat(label: l.available, value: '$availableCount'),
+                            _HeaderStat(
+                                label: l.available, value: '$availableCount'),
                             const SizedBox(width: 1),
-                            Container(width: 1, height: 32, color: Colors.white24),
+                            Container(
+                                width: 1, height: 32, color: Colors.white24),
                             const SizedBox(width: 1),
-                            _HeaderStat(label: l.active, value: hasActive ? '1' : '0'),
+                            _HeaderStat(
+                                label: l.active, value: hasActive ? '1' : '0'),
                           ],
                         ),
                       ],
@@ -397,7 +543,6 @@ class _DashboardTabState extends ConsumerState<_DashboardTab> {
               ),
             ),
           ),
-
           SliverToBoxAdapter(
             child: Padding(
               padding: const EdgeInsets.all(20),
@@ -405,16 +550,23 @@ class _DashboardTabState extends ConsumerState<_DashboardTab> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   if (hasActive) ...[
-                    Text(l.activeDelivery, style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
+                    Text(l.activeDelivery,
+                        style: Theme.of(context)
+                            .textTheme
+                            .titleMedium
+                            ?.copyWith(fontWeight: FontWeight.bold)),
                     const SizedBox(height: 12),
                     _ActiveDeliveryCard(order: activeAsync.value!),
                     const SizedBox(height: 24),
                   ],
-
                   Row(
                     children: [
                       Expanded(
-                        child: Text(l.yourLocation, style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
+                        child: Text(l.yourLocation,
+                            style: Theme.of(context)
+                                .textTheme
+                                .titleMedium
+                                ?.copyWith(fontWeight: FontWeight.bold)),
                       ),
                       if (hasLocation)
                         TextButton.icon(
@@ -432,12 +584,16 @@ class _DashboardTabState extends ConsumerState<_DashboardTab> {
                     const SizedBox(height: 4),
                     Row(
                       children: [
-                        const Icon(Icons.location_on, size: 14, color: AppColors.primary),
+                        const Icon(Icons.location_on,
+                            size: 14, color: AppColors.primary),
                         const SizedBox(width: 4),
                         Expanded(
                           child: Text(
-                            [_placeName, _cityName].where((s) => s != null && s.isNotEmpty).join(' • '),
-                            style: const TextStyle(color: AppColors.textSecondary, fontSize: 13),
+                            [_placeName, _cityName]
+                                .where((s) => s != null && s.isNotEmpty)
+                                .join(' • '),
+                            style: const TextStyle(
+                                color: AppColors.textSecondary, fontSize: 13),
                             overflow: TextOverflow.ellipsis,
                           ),
                         ),
@@ -489,14 +645,17 @@ class _DashboardTabState extends ConsumerState<_DashboardTab> {
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
                                   Icon(
-                                    _locationError != null ? Icons.location_off : Icons.location_searching,
+                                    _locationError != null
+                                        ? Icons.location_off
+                                        : Icons.location_searching,
                                     color: AppColors.textLight,
                                     size: 32,
                                   ),
                                   const SizedBox(height: 8),
                                   Text(
                                     _locationError ?? 'Locating you…',
-                                    style: const TextStyle(color: AppColors.textSecondary),
+                                    style: const TextStyle(
+                                        color: AppColors.textSecondary),
                                     textAlign: TextAlign.center,
                                   ),
                                 ],
@@ -505,23 +664,29 @@ class _DashboardTabState extends ConsumerState<_DashboardTab> {
                     ),
                   ),
                   const SizedBox(height: 24),
-
-                  Text('Available Orders', style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
+                  Text('Available Orders',
+                      style: Theme.of(context)
+                          .textTheme
+                          .titleMedium
+                          ?.copyWith(fontWeight: FontWeight.bold)),
                   const SizedBox(height: 4),
-                  Text('$availableCount order(s) waiting for a driver', style: const TextStyle(color: AppColors.textSecondary, fontSize: 13)),
+                  Text('$availableCount order(s) waiting for a driver',
+                      style: const TextStyle(
+                          color: AppColors.textSecondary, fontSize: 13)),
                   const SizedBox(height: 12),
-
                   SizedBox(
                     width: double.infinity,
                     height: 48,
                     child: ElevatedButton.icon(
                       onPressed: widget.onGoToOrders,
                       icon: const Icon(Icons.delivery_dining_rounded),
-                      label: const Text('View Available Orders', style: TextStyle(fontWeight: FontWeight.bold)),
+                      label: const Text('View Available Orders',
+                          style: TextStyle(fontWeight: FontWeight.bold)),
                       style: ElevatedButton.styleFrom(
                         backgroundColor: AppColors.primary,
                         foregroundColor: Colors.white,
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(14)),
                       ),
                     ),
                   ),
@@ -545,8 +710,13 @@ class _HeaderStat extends StatelessWidget {
     return Expanded(
       child: Column(
         children: [
-          Text(value, style: const TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold)),
-          Text(label, style: const TextStyle(color: Colors.white70, fontSize: 12)),
+          Text(value,
+              style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 22,
+                  fontWeight: FontWeight.bold)),
+          Text(label,
+              style: const TextStyle(color: Colors.white70, fontSize: 12)),
         ],
       ),
     );
@@ -583,12 +753,16 @@ class _ActiveDeliveryCard extends StatelessWidget {
               children: [
                 Text(
                   '#${order.id.toString().substring(0, 8).toUpperCase()}',
-                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+                  style: const TextStyle(
+                      fontWeight: FontWeight.bold, fontSize: 15),
                 ),
                 const SizedBox(height: 2),
                 Text(
-                  order.deliveryAddress?.fullAddress ?? order.deliveryAddress?.label ?? '',
-                  style: const TextStyle(color: AppColors.textSecondary, fontSize: 13),
+                  order.deliveryAddress?.fullAddress ??
+                      order.deliveryAddress?.label ??
+                      '',
+                  style: const TextStyle(
+                      color: AppColors.textSecondary, fontSize: 13),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),
@@ -601,7 +775,11 @@ class _ActiveDeliveryCard extends StatelessWidget {
               color: AppColors.success.withOpacity(0.12),
               borderRadius: BorderRadius.circular(8),
             ),
-            child: Text(AppLocalizations.of(context)!.onTheWay, style: const TextStyle(color: AppColors.success, fontSize: 12, fontWeight: FontWeight.bold)),
+            child: Text(AppLocalizations.of(context)!.onTheWay,
+                style: const TextStyle(
+                    color: AppColors.success,
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold)),
           ),
         ],
       ),
@@ -621,18 +799,23 @@ class _NoActiveDelivery extends StatelessWidget {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const Icon(Icons.delivery_dining, size: 80, color: AppColors.textLight),
+            const Icon(Icons.delivery_dining,
+                size: 80, color: AppColors.textLight),
             const SizedBox(height: 16),
-            Text(l.noActiveDelivery, style: const TextStyle(fontSize: 18, color: AppColors.textSecondary)),
+            Text(l.noActiveDelivery,
+                style: const TextStyle(
+                    fontSize: 18, color: AppColors.textSecondary)),
             const SizedBox(height: 8),
-            Text(l.acceptOrderToStart, style: const TextStyle(color: AppColors.textLight)),
+            Text(l.acceptOrderToStart,
+                style: const TextStyle(color: AppColors.textLight)),
             const SizedBox(height: 24),
             ElevatedButton(
               onPressed: onBrowse,
               style: ElevatedButton.styleFrom(
                 backgroundColor: AppColors.primary,
                 foregroundColor: Colors.white,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12)),
               ),
               child: Text(l.browseAvailableOrders),
             ),
@@ -673,7 +856,8 @@ class _MapMiniButton extends StatelessWidget {
 class _FullscreenMapScreen extends StatefulWidget {
   final double initialLat;
   final double initialLng;
-  const _FullscreenMapScreen({required this.initialLat, required this.initialLng});
+  const _FullscreenMapScreen(
+      {required this.initialLat, required this.initialLng});
 
   @override
   State<_FullscreenMapScreen> createState() => _FullscreenMapScreenState();

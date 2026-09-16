@@ -4,6 +4,19 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:cmandili_partner/l10n/app_localizations.dart';
 import '../../../core/theme/app_colors.dart';
 
+/// Prepaid wallet balance for the signed-in partner. Balance <= 0 means the
+/// restaurant is blocked from receiving orders until the admin tops it up.
+final partnerWalletProvider = FutureProvider.autoDispose<double?>((ref) async {
+  final userId = Supabase.instance.client.auth.currentUser?.id;
+  if (userId == null) return null;
+  final row = await Supabase.instance.client
+      .from('wallets')
+      .select('balance')
+      .eq('user_id', userId)
+      .maybeSingle();
+  return (row?['balance'] as num?)?.toDouble();
+});
+
 class PayoutScreen extends ConsumerStatefulWidget {
   const PayoutScreen({super.key});
 
@@ -81,6 +94,7 @@ class _PayoutScreenState extends ConsumerState<PayoutScreen> {
   @override
   Widget build(BuildContext context) {
     final l = AppLocalizations.of(context)!;
+    final walletAsync = ref.watch(partnerWalletProvider);
     return Scaffold(
       appBar: AppBar(
         title: Text(l.payoutInfo, style: const TextStyle(fontWeight: FontWeight.bold)),
@@ -98,6 +112,14 @@ class _PayoutScreenState extends ConsumerState<PayoutScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
+                    // Prepaid balance card + low-balance banner
+                    walletAsync.when(
+                      loading: () => const SizedBox.shrink(),
+                      error: (_, __) => const SizedBox.shrink(),
+                      data: (balance) => _PrepaidBalanceCard(balance: balance),
+                    ),
+                    const SizedBox(height: 24),
+
                     Container(
                       padding: const EdgeInsets.all(16),
                       decoration: BoxDecoration(
@@ -188,6 +210,84 @@ class _PayoutScreenState extends ConsumerState<PayoutScreen> {
         filled: true,
         fillColor: Colors.white,
       ),
+    );
+  }
+}
+
+/// Prepaid balance summary. When the balance is at or below zero the restaurant
+/// is blocked from receiving orders, so we show a prominent red recharge banner.
+class _PrepaidBalanceCard extends StatelessWidget {
+  final double? balance;
+
+  const _PrepaidBalanceCard({required this.balance});
+
+  @override
+  Widget build(BuildContext context) {
+    final value = balance ?? 0;
+    final isBlocked = value <= 0;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Container(
+          padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            gradient: AppColors.primaryGradient,
+            borderRadius: BorderRadius.circular(16),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Row(
+                children: [
+                  Icon(Icons.account_balance_wallet_rounded,
+                      color: Colors.white70, size: 20),
+                  SizedBox(width: 8),
+                  Text('Solde prépayé',
+                      style: TextStyle(color: Colors.white70, fontSize: 14)),
+                ],
+              ),
+              const SizedBox(height: 10),
+              Text(
+                '${value.toStringAsFixed(3)} DT',
+                style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 32,
+                    fontWeight: FontWeight.bold),
+              ),
+            ],
+          ),
+        ),
+        if (isBlocked) ...[
+          const SizedBox(height: 12),
+          Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: AppColors.error.withValues(alpha: 0.1),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: AppColors.error.withValues(alpha: 0.4)),
+            ),
+            child: const Row(
+              children: [
+                Icon(Icons.warning_amber_rounded,
+                    color: AppColors.error, size: 22),
+                SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    'Votre solde est épuisé. Rechargez votre solde pour '
+                    'continuer à recevoir des commandes.',
+                    style: TextStyle(
+                        color: AppColors.error,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        height: 1.3),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ],
     );
   }
 }

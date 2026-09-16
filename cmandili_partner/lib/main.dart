@@ -49,7 +49,9 @@ void main() async {
   // Defer the rest of push init (token fetch + Supabase upsert + foreground
   // listener) off the critical path so it doesn't stall first frame.
   WidgetsBinding.instance.addPostFrameCallback((_) {
-    PushService.instance.initialize().catchError((_) {});
+    PushService.instance.initialize().catchError((e) {
+      debugPrint('PushService.initialize top-level failure: $e');
+    });
     // Wire notification-tap deep-linking and drain any cold-start tap that
     // launched the app onto a specific order.
     NotificationNavigation.instance.initialize();

@@ -53,12 +53,10 @@ class AppTheme {
       primary: AppColors.primary,
       secondary: AppColors.secondary,
       surface: AppColors.surface,
-      background: AppColors.background,
       error: AppColors.error,
       onPrimary: Colors.white,
       onSecondary: Colors.white,
       onSurface: AppColors.textPrimary,
-      onBackground: AppColors.textPrimary,
     ),
     scaffoldBackgroundColor: AppColors.background,
     textTheme: _textTheme(AppColors.textPrimary, AppColors.textSecondary),
@@ -134,11 +132,11 @@ class AppTheme {
       fillColor: AppColors.surface,
       border: OutlineInputBorder(
         borderRadius: BorderRadius.circular(12),
-        borderSide: BorderSide(color: AppColors.textLight.withOpacity(0.3)),
+        borderSide: BorderSide(color: AppColors.textLight.withValues(alpha: 0.3)),
       ),
       enabledBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(12),
-        borderSide: BorderSide(color: AppColors.textLight.withOpacity(0.3)),
+        borderSide: BorderSide(color: AppColors.textLight.withValues(alpha: 0.3)),
       ),
       focusedBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(12),
@@ -176,15 +174,15 @@ class AppTheme {
     
     // Divider Theme
     dividerTheme: DividerThemeData(
-      color: AppColors.textLight.withOpacity(0.2),
+      color: AppColors.textLight.withValues(alpha: 0.2),
       thickness: 1,
       space: 1,
     ),
 
     navigationBarTheme: NavigationBarThemeData(
       backgroundColor: AppColors.surface,
-      indicatorColor: AppColors.primary.withOpacity(0.12),
-      labelTextStyle: MaterialStateProperty.all(
+      indicatorColor: AppColors.primary.withValues(alpha: 0.12),
+      labelTextStyle: WidgetStateProperty.all(
         const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
       ),
     ),
@@ -196,12 +194,10 @@ class AppTheme {
       primary: AppColors.primary,
       secondary: AppColors.secondary,
       surface: AppColors.surfaceDark,
-      background: AppColors.backgroundDark,
       error: AppColors.error,
       onPrimary: Colors.white,
       onSecondary: Colors.white,
       onSurface: Colors.white,
-      onBackground: Colors.white,
     ),
     scaffoldBackgroundColor: AppColors.backgroundDark,
     textTheme: _textTheme(Colors.white, Colors.white70),
@@ -257,11 +253,11 @@ class AppTheme {
       fillColor: AppColors.surfaceDark,
       border: OutlineInputBorder(
         borderRadius: BorderRadius.circular(12),
-        borderSide: BorderSide(color: Colors.white.withOpacity(0.2)),
+        borderSide: BorderSide(color: Colors.white.withValues(alpha: 0.2)),
       ),
       enabledBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(12),
-        borderSide: BorderSide(color: Colors.white.withOpacity(0.2)),
+        borderSide: BorderSide(color: Colors.white.withValues(alpha: 0.2)),
       ),
       focusedBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(12),
@@ -269,7 +265,7 @@ class AppTheme {
       ),
       contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
       hintStyle: TextStyle(
-        color: Colors.white.withOpacity(0.5),
+        color: Colors.white.withValues(alpha: 0.5),
         fontSize: 14,
       ),
     ),
@@ -277,7 +273,7 @@ class AppTheme {
     outlinedButtonTheme: OutlinedButtonThemeData(
       style: OutlinedButton.styleFrom(
         foregroundColor: Colors.white,
-        side: BorderSide(color: Colors.white.withOpacity(0.4), width: 1.5),
+        side: BorderSide(color: Colors.white.withValues(alpha: 0.4), width: 1.5),
         padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(12),

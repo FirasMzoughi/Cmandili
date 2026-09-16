@@ -27,6 +27,10 @@ class IncomingOrderDialog extends ConsumerWidget {
         : extra > 0
             ? '${firstItem.displayName} + $extra item(s)'
             : firstItem.displayName;
+    // Same first-item-only simplification as orderTitle above — full
+    // per-item detail (incl. every item's options) lives on the order
+    // detail screen the partner sees right after accepting.
+    final firstItemOptions = firstItem?.optionsSummary;
 
     return Dialog(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
@@ -134,6 +138,18 @@ class IncomingOrderDialog extends ConsumerWidget {
                               color: AppColors.textSecondary,
                             ),
                           ),
+                          if (firstItemOptions?.isNotEmpty ?? false) ...[
+                            const SizedBox(height: 2),
+                            Text(
+                              firstItemOptions!,
+                              style: const TextStyle(
+                                fontSize: 12,
+                                color: AppColors.textSecondary,
+                              ),
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ],
                         ],
                       ),
                     ),

@@ -5,7 +5,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
-	<string>Cmandili Partner</string>
+	<string>Amana Partner</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -13,7 +13,7 @@
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>
-	<string>Cmandili Partner</string>
+	<string>Amana Partner</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
@@ -46,11 +46,11 @@
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
 	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>Cmandili Partner uses your location to show your business on the map and calculate delivery zones.</string>
+	<string>Amana Partner uses your location to show your business on the map and calculate delivery zones.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
-	<string>Cmandili Partner needs access to your photo library so you can upload menu item images.</string>
+	<string>Amana Partner needs access to your photo library so you can upload menu item images.</string>
 	<key>NSCameraUsageDescription</key>
-	<string>Cmandili Partner uses the camera so you can take photos of menu items.</string>
+	<string>Amana Partner uses the camera so you can take photos of menu items.</string>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>fetch</string>

@@ -60,7 +60,6 @@ class _AddEditItemScreenState extends ConsumerState<AddEditItemScreen> {
   // is empty for newly-added rows; `replaceVariants` reissues fresh ids on
   // insert anyway, so the local id only matters for keying the ListView.
   final List<_VariantDraft> _variants = [];
-  bool _variantsLoaded = false;
 
   bool get _isRestaurant => widget.partnerType == 'restaurant';
   bool get _isEditing =>
@@ -128,7 +127,6 @@ class _AddEditItemScreenState extends ConsumerState<AddEditItemScreen> {
               price: v.price,
               isAvailable: v.isAvailable,
             )));
-      _variantsLoaded = true;
     });
   }
 
@@ -172,7 +170,7 @@ class _AddEditItemScreenState extends ConsumerState<AddEditItemScreen> {
       final basePrice = double.tryParse(_priceController.text) ?? 0.0;
       final hpPrice = double.tryParse(hpText);
 
-      if (hpText.isEmpty || hpPrice == null) {
+      if (hpText.isEmpty || hpPrice == null || hpPrice <= 0) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Veuillez entrer un prix valide pour l\'Happy Hour', style: TextStyle(color: Colors.white)), backgroundColor: AppColors.error)
         );
@@ -207,7 +205,7 @@ class _AddEditItemScreenState extends ConsumerState<AddEditItemScreen> {
       }
     }
 
-    String _formatTime(TimeOfDay? time) {
+    String formatTime(TimeOfDay? time) {
       if (time == null) return '';
       return '${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}:00';
     }
@@ -228,8 +226,8 @@ class _AddEditItemScreenState extends ConsumerState<AddEditItemScreen> {
         isSpicy: _isSpicy,
         isHappyHour: _isHappyHour,
         happyHourPrice: _isHappyHour ? double.tryParse(_happyHourPriceController.text) : null,
-        happyHourStart: _isHappyHour ? _formatTime(_happyHourStart) : null,
-        happyHourEnd: _isHappyHour ? _formatTime(_happyHourEnd) : null,
+        happyHourStart: _isHappyHour ? formatTime(_happyHourStart) : null,
+        happyHourEnd: _isHappyHour ? formatTime(_happyHourEnd) : null,
       );
       if (_isEditing) {
         ok = await repo.updateFoodItem(item);
@@ -364,7 +362,9 @@ class _AddEditItemScreenState extends ConsumerState<AddEditItemScreen> {
                 required: true,
                 validator: (v) {
                   if (v == null || v.isEmpty) return 'Enter a price';
-                  if (double.tryParse(v) == null) return 'Enter a valid number';
+                  final parsed = double.tryParse(v);
+                  if (parsed == null) return 'Enter a valid number';
+                  if (parsed <= 0) return 'Price must be greater than 0';
                   return null;
                 }),
             const SizedBox(height: 14),

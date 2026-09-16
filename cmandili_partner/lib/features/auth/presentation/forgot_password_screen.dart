@@ -141,7 +141,7 @@ class _ForgotPasswordScreenState extends ConsumerState<ForgotPasswordScreen>
                                       color: Colors.white)),
                               SizedBox(height: sh * 0.01),
                               Text(
-                                "Enter your email and we'll send\nyou a 6-digit reset code.",
+                                "Enter your email and we'll send\nyou an 8-digit reset code.",
                                 textAlign: TextAlign.center,
                                 style: TextStyle(
                                     fontSize: sw * 0.038,

@@ -79,6 +79,7 @@ class OrderRepository {
       'userId': dbJson['user_id'],
       'restaurantId': dbJson['restaurant_id'] ?? '',
       'restaurantName': '', // Would need to join with restaurants table
+      'supermarketId': dbJson['supermarket_id'] ?? '',
       'items': [], // Would need to join with order_items table
       'deliveryAddress': dbJson['delivery_address'] ?? {},
       'subtotal': dbJson['subtotal'],
@@ -109,6 +110,8 @@ class OrderRepository {
       'billAmount': dbJson['bill_amount'] != null ? (dbJson['bill_amount'] as num).toDouble() : null,
       'billPhotoUrl': dbJson['bill_photo_url'],
       'receiptPhotoUrl': dbJson['bill_receipt_url'],
+      'loyaltyMilestoneType': dbJson['loyalty_milestone_type'],
+      'loyaltyDiscountAmount': dbJson['loyalty_discount_amount'],
     };
   }
 }

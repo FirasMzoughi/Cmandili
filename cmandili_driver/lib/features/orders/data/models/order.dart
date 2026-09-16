@@ -25,6 +25,7 @@ class Order {
   final String userId;
   final String restaurantId;
   final String restaurantName;
+  final String supermarketId;
   final List<CartItem> items;
   final DeliveryAddress deliveryAddress;
   final double subtotal;
@@ -62,11 +63,31 @@ class Order {
   final String? customerName;
   final String? customerPhone;
 
+  // Loyalty milestone (5th order = half price, 10th = free), stamped by
+  // apply_loyalty_at_checkout() at order creation — already set by the time
+  // any driver sees this order, so it's safe to show before accepting.
+  final String? loyaltyMilestoneType; // 'half' | 'free' | null
+  final double loyaltyDiscountAmount;
+
+  // "Pizza Margherita x2, et 3 autres" — food/supermarket orders only.
+  // Null for courier/facture (use packageDescription/billType instead) or
+  // when not yet loaded.
+  final String? contentSummary;
+
+  // Driver's settlements for this order (generate_settlements_on_delivery).
+  // Null when no commission_deduction row exists yet -- non-cash orders
+  // never get one, since that trigger is cash-only. commissionAmount is
+  // stored/shown as a negative value; loyaltySubsidyAmount (positive) is
+  // only set when this was a loyalty-milestone order.
+  final double? commissionAmount;
+  final double? loyaltySubsidyAmount;
+
   Order({
     required this.id,
     required this.userId,
     this.restaurantId = '',
     this.restaurantName = '',
+    this.supermarketId = '',
     this.items = const [],
     required this.deliveryAddress,
     required this.subtotal,
@@ -97,6 +118,11 @@ class Order {
     this.receiptPhotoUrl,
     this.customerName,
     this.customerPhone,
+    this.loyaltyMilestoneType,
+    this.loyaltyDiscountAmount = 0,
+    this.contentSummary,
+    this.commissionAmount,
+    this.loyaltySubsidyAmount,
   });
 
   factory Order.fromJson(Map<String, dynamic> json) {
@@ -105,6 +131,7 @@ class Order {
       userId: json['userId'] ?? '',
       restaurantId: json['restaurantId'] ?? '',
       restaurantName: json['restaurantName'] ?? '',
+      supermarketId: json['supermarketId'] ?? '',
       items: (json['items'] as List?)
               ?.map((item) => CartItem.fromJson(item))
               .toList() ??
@@ -148,6 +175,12 @@ class Order {
       receiptPhotoUrl: json['receiptPhotoUrl'] as String?,
       customerName: json['customerName'] as String?,
       customerPhone: json['customerPhone'] as String?,
+      loyaltyMilestoneType: json['loyaltyMilestoneType'] as String?,
+      loyaltyDiscountAmount:
+          (json['loyaltyDiscountAmount'] as num?)?.toDouble() ?? 0,
+      contentSummary: json['contentSummary'] as String?,
+      commissionAmount: (json['commissionAmount'] as num?)?.toDouble(),
+      loyaltySubsidyAmount: (json['loyaltySubsidyAmount'] as num?)?.toDouble(),
     );
   }
 
@@ -157,6 +190,7 @@ class Order {
       'userId': userId,
       'restaurantId': restaurantId,
       'restaurantName': restaurantName,
+      'supermarketId': supermarketId,
       'items': items.map((item) => item.toJson()).toList(),
       'deliveryAddress': deliveryAddress.toJson(),
       'subtotal': subtotal,
@@ -185,6 +219,11 @@ class Order {
       'billAmount': billAmount,
       'billPhotoUrl': billPhotoUrl,
       'receiptPhotoUrl': receiptPhotoUrl,
+      'loyaltyMilestoneType': loyaltyMilestoneType,
+      'loyaltyDiscountAmount': loyaltyDiscountAmount,
+      'contentSummary': contentSummary,
+      'commissionAmount': commissionAmount,
+      'loyaltySubsidyAmount': loyaltySubsidyAmount,
     };
   }
 

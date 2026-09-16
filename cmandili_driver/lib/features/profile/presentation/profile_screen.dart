@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/theme/app_colors.dart';
-import '../../auth/presentation/auth_screen.dart';
 import '../../auth/providers/auth_provider.dart';
 import 'package:cmandili_driver/l10n/app_localizations.dart';
 import '../../../core/providers/localization_provider.dart';
@@ -164,12 +163,15 @@ class ProfileScreen extends ConsumerWidget {
                   textColor: AppColors.error,
                   iconColor: AppColors.error,
                   showArrow: false,
-                  onTap: () {
-                    Navigator.of(context).pushAndRemoveUntil(
-                      MaterialPageRoute(builder: (_) => const AuthScreen()),
-                      (route) => false,
-                    );
-                  },
+                  // Just sign out — _RootGate (main.dart) reacts to
+                  // authStateProvider on its own and swaps to AuthScreen.
+                  // The previous version pushed a bare AuthScreen and wiped
+                  // the whole Navigator stack WITHOUT ever calling signOut(),
+                  // which (a) left the Supabase session logged in underneath
+                  // and (b) tore down _RootGate itself, so a later sign-in
+                  // attempt had no widget left watching authStateProvider —
+                  // the session updated but nothing was there to react to it.
+                  onTap: () => ref.read(authRepositoryProvider).signOut(),
                   screenWidth: screenWidth,
                   screenHeight: screenHeight,
                 ),

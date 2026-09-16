@@ -127,7 +127,10 @@ class OrderDetailScreen extends ConsumerWidget {
           _Section(
             title: '${l.items} (${order.items.length})',
             child: Column(
-              children: order.items.map((item) => _ItemRow(item: item)).toList(),
+              children: [
+                for (var i = 0; i < order.items.length; i++)
+                  _ItemRow(item: order.items[i], isLast: i == order.items.length - 1),
+              ],
             ),
           ),
 
@@ -313,13 +316,16 @@ class OrderDetailScreen extends ConsumerWidget {
 
 class _ItemRow extends StatelessWidget {
   final dynamic item; // CartItem
-  const _ItemRow({required this.item});
+  final bool isLast;
+  const _ItemRow({required this.item, required this.isLast});
 
   @override
   Widget build(BuildContext context) {
     final hasText = (item.specialInstructions as String?)?.isNotEmpty ?? false;
     final hasVoice = (item.voiceNoteContent as String?)?.isNotEmpty ?? false;
     final duration = item.voiceNoteDurationSeconds as int?;
+    final optionsSummary = item.optionsSummary as String?;
+    final hasOptions = optionsSummary?.isNotEmpty ?? false;
 
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 6),
@@ -340,6 +346,13 @@ class _ItemRow extends StatelessWidget {
               ),
             ],
           ),
+          if (hasOptions) ...[
+            const SizedBox(height: 2),
+            Text(
+              optionsSummary!,
+              style: const TextStyle(fontSize: 12, color: AppColors.textSecondary),
+            ),
+          ],
           if (hasText) ...[
             const SizedBox(height: 4),
             Row(
@@ -386,8 +399,7 @@ class _ItemRow extends StatelessWidget {
               );
             }),
           ],
-          if (item != (context.findAncestorWidgetOfExactType<Column>()?.children.last))
-            const Divider(height: 16),
+          if (!isLast) const Divider(height: 16),
         ],
       ),
     );

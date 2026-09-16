@@ -11,6 +11,10 @@ class CartItem {
   // Selected variant name when the customer picked an option
   // (e.g. "Chocolate"). Pulled from options.variant.name.
   final String? variantName;
+  // Selected option-group add-ons, formatted for a fast rush-hour read, e.g.
+  // "Sauce: Harissa, Mayonnaise · Suppléments: Gruyère (+6.00 DT)". Pulled
+  // from options.optionGroups[].{groupName,selections[].{name,price}}.
+  final String? optionsSummary;
 
   CartItem({
       required this.id,
@@ -22,6 +26,7 @@ class CartItem {
       this.voiceNoteContent,
       this.voiceNoteDurationSeconds,
       this.variantName,
+      this.optionsSummary,
   });
 
   double get totalPrice => price * quantity;
@@ -37,6 +42,7 @@ class CartItem {
     String? voiceContent;
     int? voiceDuration;
     String? variantName;
+    String? optionsSummary;
     final options = json['options'];
     if (options is Map) {
       if (options['type'] == 'voice') {
@@ -47,6 +53,7 @@ class CartItem {
       if (variant is Map) {
         variantName = variant['name'] as String?;
       }
+      optionsSummary = _formatOptionGroups(options['optionGroups']);
     }
 
     if (type == 'grocery') {
@@ -61,6 +68,7 @@ class CartItem {
             voiceNoteContent: voiceContent,
             voiceNoteDurationSeconds: voiceDuration,
             variantName: variantName,
+            optionsSummary: optionsSummary,
         );
     } else {
         final food = json['foodItem'] ?? {};
@@ -75,8 +83,36 @@ class CartItem {
             voiceNoteContent: voiceContent,
             voiceNoteDurationSeconds: voiceDuration,
             variantName: variantName,
+            optionsSummary: optionsSummary,
         );
     }
+  }
+
+  /// Groups selected add-ons by their option group for a fast rush-hour
+  /// read, e.g. "Sauce: Harissa, Mayonnaise · Suppléments: Gruyère (+6.00 DT)".
+  /// Null when nothing was selected.
+  static String? _formatOptionGroups(dynamic optionGroups) {
+    if (optionGroups is! List || optionGroups.isEmpty) return null;
+    final parts = <String>[];
+    for (final group in optionGroups) {
+      if (group is! Map) continue;
+      final groupName = group['groupName'] as String?;
+      final selections = group['selections'];
+      if (groupName == null || groupName.isEmpty || selections is! List) continue;
+      final labels = selections
+          .whereType<Map>()
+          .map((s) {
+            final name = s['name'] as String?;
+            if (name == null || name.isEmpty) return null;
+            final price = (s['price'] as num?)?.toDouble() ?? 0.0;
+            return price > 0 ? '$name (+${price.toStringAsFixed(2)} DT)' : name;
+          })
+          .whereType<String>()
+          .join(', ');
+      if (labels.isEmpty) continue;
+      parts.add('$groupName: $labels');
+    }
+    return parts.isEmpty ? null : parts.join(' · ');
   }
 
   Map<String, dynamic> toJson() {

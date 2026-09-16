@@ -98,7 +98,7 @@ class NotificationScreen extends ConsumerWidget {
                               .deleteNotification(notification.id);
                         },
                       );
-                    }).toList(),
+                    }),
                   ],
                 );
               },

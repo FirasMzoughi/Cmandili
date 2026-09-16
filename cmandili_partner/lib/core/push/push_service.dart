@@ -13,7 +13,7 @@ const String _kChannelDesc = 'Notifications about your orders';
 
 // Alarm channel for NEW orders — uses alarm audio attributes so Android
 // respects the sound even in DND. Must match the channel created at runtime.
-const String _kAlarmChannelId   = 'cmandili_orders_urgent_2';
+const String _kAlarmChannelId   = 'cmandili_orders_urgent_3';
 const String _kAlarmChannelName = 'Urgent Order updates';
 const String _kAlarmChannelDesc = 'Urgent alerts for new incoming orders';
 
@@ -112,73 +112,91 @@ class PushService {
     if (_initialized) return;
     _initialized = true;
 
-    await _fcm.requestPermission(alert: true, badge: true, sound: true);
+    // Everything in this block is setup that IMPROVES push delivery
+    // (channels, permissions, tap-handling) but none of it is required to
+    // register the device token below. Wrapped so a failure in any one step
+    // (e.g. a plugin quirk) can't silently prevent token registration from
+    // ever running — which is exactly what happened before this was added:
+    // a duplicate onBackgroundMessage registration (see note below) could
+    // throw here and the old blind try/catch in main.dart swallowed it with
+    // no trace, so _registerToken() and the onAuthStateChange listener below
+    // were simply never reached.
+    try {
+      await _fcm.requestPermission(alert: true, badge: true, sound: true);
 
-    // On OEM Android (Xiaomi, Samsung, Huawei) battery optimization kills the
-    // background Dart isolate before it can show alarm notifications for new
-    // orders when the app is terminated. Requesting exemption keeps the app
-    // reachable so the alarm fires reliably.
-    if (defaultTargetPlatform == TargetPlatform.android) {
-      final status = await Permission.ignoreBatteryOptimizations.status;
-      if (!status.isGranted) {
-        await Permission.ignoreBatteryOptimizations.request();
+      // On OEM Android (Xiaomi, Samsung, Huawei) battery optimization kills the
+      // background Dart isolate before it can show alarm notifications for new
+      // orders when the app is terminated. Requesting exemption keeps the app
+      // reachable so the alarm fires reliably.
+      if (defaultTargetPlatform == TargetPlatform.android) {
+        final status = await Permission.ignoreBatteryOptimizations.status;
+        if (!status.isGranted) {
+          await Permission.ignoreBatteryOptimizations.request();
+        }
       }
+
+      const androidInit = AndroidInitializationSettings('@mipmap/ic_launcher');
+      const iosInit = DarwinInitializationSettings(
+        requestAlertPermission: true,
+        requestBadgePermission: true,
+        requestSoundPermission: true,
+        requestCriticalPermission: true, // required for critical alerts on iOS
+      );
+      await _local.initialize(
+        const InitializationSettings(android: androidInit, iOS: iosInit),
+      );
+
+      final androidPlugin = _local.resolvePlatformSpecificImplementation<
+          AndroidFlutterLocalNotificationsPlugin>();
+
+      // Standard channel for non-urgent status updates.
+      await androidPlugin?.createNotificationChannel(const AndroidNotificationChannel(
+        _kChannelId,
+        _kChannelName,
+        description: _kChannelDesc,
+        importance: Importance.high,
+      ));
+
+      // Alarm channel for new orders. Created here AND in the background handler
+      // so it exists whichever path fires first.
+      await androidPlugin?.createNotificationChannel(AndroidNotificationChannel(
+        _kAlarmChannelId,
+        _kAlarmChannelName,
+        description: _kAlarmChannelDesc,
+        importance: Importance.max,
+        playSound: true,
+        sound: const RawResourceAndroidNotificationSound('new_order'),
+        enableVibration: true,
+        vibrationPattern: Int64List.fromList([0, 500, 300, 700, 300, 700]),
+      ));
+
+      // Show heads-up banners while the app is in the foreground on iOS.
+      await _fcm.setForegroundNotificationPresentationOptions(
+        alert: true,
+        badge: true,
+        sound: true,
+      );
+
+      FirebaseMessaging.onMessage.listen(_onForegroundMessage);
+      // NOTE: onBackgroundMessage is intentionally NOT registered here.
+      // main.dart already registers firebaseMessagingBackgroundHandler
+      // before runApp() — required timing for Android to wire up the
+      // background isolate. Registering it a second time here was
+      // redundant and, if the plugin doesn't tolerate a repeat
+      // registration, could throw and abort everything below.
+
+      // ── Notification-tap deep-linking ──────────────────────────────────
+      // These fire for taps on a real FCM `notification` payload. The native
+      // killed-app alarm (CmandiliMessagingService) is data-only, so its taps
+      // route through MainActivity's intent extras instead (see
+      // NotificationNavigation). Handling both keeps every path covered.
+      FirebaseMessaging.onMessageOpenedApp.listen(_onNotificationTap);
+      final initialMessage = await _fcm.getInitialMessage();
+      if (initialMessage != null) _onNotificationTap(initialMessage);
+    } catch (e, st) {
+      debugPrint('PushService.initialize: setup step failed (continuing to '
+          'token registration regardless): $e\n$st');
     }
-
-    const androidInit = AndroidInitializationSettings('@mipmap/ic_launcher');
-    const iosInit = DarwinInitializationSettings(
-      requestAlertPermission: true,
-      requestBadgePermission: true,
-      requestSoundPermission: true,
-      requestCriticalPermission: true, // required for critical alerts on iOS
-    );
-    await _local.initialize(
-      const InitializationSettings(android: androidInit, iOS: iosInit),
-    );
-
-    final androidPlugin = _local.resolvePlatformSpecificImplementation<
-        AndroidFlutterLocalNotificationsPlugin>();
-
-    // Standard channel for non-urgent status updates.
-    await androidPlugin?.createNotificationChannel(const AndroidNotificationChannel(
-      _kChannelId,
-      _kChannelName,
-      description: _kChannelDesc,
-      importance: Importance.high,
-    ));
-
-    // Alarm channel for new orders. Created here AND in the background handler
-    // so it exists whichever path fires first.
-    await androidPlugin?.createNotificationChannel(AndroidNotificationChannel(
-      _kAlarmChannelId,
-      _kAlarmChannelName,
-      description: _kAlarmChannelDesc,
-      importance: Importance.max,
-      playSound: true,
-      sound: const RawResourceAndroidNotificationSound('new_order'),
-      enableVibration: true,
-      vibrationPattern: Int64List.fromList([0, 500, 300, 700, 300, 700]),
-    ));
-
-    // Show heads-up banners while the app is in the foreground on iOS.
-    await _fcm.setForegroundNotificationPresentationOptions(
-      alert: true,
-      badge: true,
-      sound: true,
-    );
-
-    FirebaseMessaging.onMessage.listen(_onForegroundMessage);
-    // Register the same top-level handler used for background.
-    FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
-
-    // ── Notification-tap deep-linking ────────────────────────────────────────
-    // These fire for taps on a real FCM `notification` payload. The native
-    // killed-app alarm (CmandiliMessagingService) is data-only, so its taps
-    // route through MainActivity's intent extras instead (see
-    // NotificationNavigation). Handling both keeps every path covered.
-    FirebaseMessaging.onMessageOpenedApp.listen(_onNotificationTap);
-    final initialMessage = await _fcm.getInitialMessage();
-    if (initialMessage != null) _onNotificationTap(initialMessage);
 
     await _registerToken();
     _fcm.onTokenRefresh.listen((_) => _registerToken());
@@ -194,14 +212,19 @@ class PushService {
     final userId = Supabase.instance.client.auth.currentUser?.id;
     if (userId == null) return;
     final token = await _fcm.getToken();
-    if (token == null) return;
+    if (token == null) {
+      debugPrint('PushService._registerToken: FCM getToken() returned null');
+      return;
+    }
     try {
       await Supabase.instance.client.from('device_tokens').upsert({
         'user_id': userId,
         'token': token,
         'platform': defaultTargetPlatform.name,
       }, onConflict: 'token');
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('PushService._registerToken: upsert failed: $e');
+    }
   }
 
   // ── Foreground message handler ──────────────────────────────────────────

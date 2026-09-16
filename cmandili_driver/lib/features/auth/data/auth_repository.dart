@@ -1,7 +1,9 @@
 import 'package:flutter/foundation.dart';
 import 'dart:async';
+import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' as supabase;
 import 'package:google_sign_in/google_sign_in.dart';
+import '../../../core/services/background_location_service.dart';
 
 // Simple User class to replace Firebase User
 class User {
@@ -52,14 +54,20 @@ class AuthRepository {
 
   // Sign in with email and password
   Future<User?> signInWithEmail(String email, String password) async {
-    final response = await _supabase.auth.signInWithPassword(
-      email: email,
-      password: password,
-    );
-    
+    // GoTrue can occasionally hang indefinitely on this call (observed after
+    // a sign-out earlier in the same session) — without a timeout the button
+    // spins forever with no error and no way to recover short of killing the
+    // app. Force it to fail instead so the UI can reset and the user can retry.
+    final response = await _supabase.auth
+        .signInWithPassword(email: email, password: password)
+        .timeout(
+          const Duration(seconds: 15),
+          onTimeout: () => throw 'La connexion prend trop de temps. Réessaie.',
+        );
+
     final user = response.user;
     if (user == null) throw 'Sign in failed';
-    
+
     return User.fromSupabase(user);
   }
 
@@ -142,6 +150,37 @@ class AuthRepository {
 
   // Sign out
   Future<void> signOut() async {
+    // Remove this device's push token before the session ends. Left
+    // unremoved, a stale row keeps receiving pushes for this account even
+    // after a different account signs in on the same physical device --
+    // confirmed live: a driver's status-update pushes were reaching a
+    // phone that had since switched to a different test account, because
+    // its old token from months ago was still sitting in device_tokens.
+    // Must run before auth.signOut() -- the RLS policy needs auth.uid()
+    // to still resolve to this user.
+    try {
+      final token = await FirebaseMessaging.instance.getToken();
+      if (token != null) {
+        await _supabase.from('device_tokens').delete().eq('token', token);
+      }
+    } catch (e) {
+      debugPrint('signOut: failed to remove device token: $e');
+    }
+    // Same class of bug as the device-token one above, for the GPS
+    // foreground service: startTracking()/startOnlinePresence() persist this
+    // driver's id to SharedPreferences (bg_driver_id/bg_delivery_id) for the
+    // background isolate to read, completely separate from the Supabase auth
+    // session. If a different account signs in on this same physical device
+    // without this call, that isolate keeps running under the OLD driver's
+    // id — still pushing their GPS to `drivers`/`deliveries` and still
+    // showing their delivery-offer alarm — with no visible link to whichever
+    // account is actually signed in. Confirmed live on a real device: a
+    // stale bg_driver_id from a previous test account kept ringing and
+    // updating location well after the app had switched to a different
+    // signed-in user. No RLS dependency (purely local SharedPreferences +
+    // stopping the service), so ordering relative to auth.signOut() doesn't
+    // matter the way it does for the token deletion above.
+    await BackgroundLocationService.stopTracking();
     await _googleSignIn.signOut();
     await _supabase.auth.signOut();
   }

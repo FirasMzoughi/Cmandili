@@ -24,13 +24,13 @@ import com.google.firebase.messaging.RemoteMessage
  * The Dart foreground handler (FirebaseMessaging.onMessage) still fires
  * normally when the app is open — this service only handles background/terminated.
  *
- * Channel "cmandili_orders_urgent_2" is pre-created in Application.onCreate()
+ * Channel "cmandili_orders_urgent_3" is pre-created in Application.onCreate()
  * with AudioAttributes.USAGE_ALARM + custom sound.
  */
 class CmandiliMessagingService : FirebaseMessagingService() {
 
     companion object {
-        private const val ALARM_CHANNEL_ID = "cmandili_orders_urgent_2"
+        private const val ALARM_CHANNEL_ID = "cmandili_orders_urgent_3"
         private const val ALARM_NOTIF_ID   = 42   // matches _kAlarmNotifId in push_service.dart
     }
 

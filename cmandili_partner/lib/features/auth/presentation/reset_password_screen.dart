@@ -309,7 +309,7 @@ class _ResetPasswordScreenState extends ConsumerState<ResetPasswordScreen>
                                               if (v == null || v.isEmpty) {
                                                 return 'Please enter a password';
                                               }
-                                              if (v.length < 8) {
+                                              if (v.length < 6) {
                                                 return 'Must be at least 6 characters';
                                               }
                                               return null;

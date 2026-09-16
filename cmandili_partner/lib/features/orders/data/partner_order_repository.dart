@@ -252,6 +252,17 @@ class PartnerOrderRepository {
   }
 
   Map<String, dynamic> _mapOrderFromDb(Map<String, dynamic> dbJson) {
+    // `drivers.current_lat/current_lng` default to the literal sentinel
+    // (0, 0) before the driver's first real GPS write. Treat that pair —
+    // and either being null — as "no location yet" so the tracking map
+    // doesn't drop a marker off the coast of Africa. Checked jointly (not
+    // per-axis) since a legitimate coordinate can independently be 0.0 on
+    // the equator or prime meridian.
+    final rawLat = (dbJson['driver_latitude'] as num?)?.toDouble();
+    final rawLng = (dbJson['driver_longitude'] as num?)?.toDouble();
+    final hasDriverLocation =
+        rawLat != null && rawLng != null && !(rawLat == 0.0 && rawLng == 0.0);
+
     return {
       'id': dbJson['id'],
       'userId': dbJson['user_id'],
@@ -266,10 +277,10 @@ class PartnerOrderRepository {
       'createdAt': dbJson['created_at'],
       'estimatedDeliveryTime': dbJson['estimated_delivery_time'],
       'driverId': dbJson['driver_id'],
-      'driverName': null,
-      'driverPhone': null,
-      'driverLatitude': null,
-      'driverLongitude': null,
+      'driverName': dbJson['driver_name'],
+      'driverPhone': dbJson['driver_phone'],
+      'driverLatitude': hasDriverLocation ? rawLat : null,
+      'driverLongitude': hasDriverLocation ? rawLng : null,
       'paymentMethod': dbJson['payment_method'],
       'notes': dbJson['notes'],
       'type': dbJson['order_type'],

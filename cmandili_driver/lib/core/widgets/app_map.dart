@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
@@ -18,12 +19,19 @@ class AppMapMarker {
   final AppMapMarkerKind kind;
   final String? title;
 
+  /// Optional compass heading in degrees (0 = north, clockwise), used to
+  /// rotate the marker so a moving driver visibly points the way they're
+  /// heading instead of always facing the same fixed direction. Ignored for
+  /// non-driver marker kinds. Null means "no rotation" (renders upright).
+  final double? bearing;
+
   const AppMapMarker({
     required this.id,
     required this.latitude,
     required this.longitude,
     required this.kind,
     this.title,
+    this.bearing,
   });
 
   @override
@@ -33,10 +41,30 @@ class AppMapMarker {
       other.latitude == latitude &&
       other.longitude == longitude &&
       other.kind == kind &&
-      other.title == title;
+      other.title == title &&
+      other.bearing == bearing;
 
   @override
-  int get hashCode => Object.hash(id, latitude, longitude, kind, title);
+  int get hashCode =>
+      Object.hash(id, latitude, longitude, kind, title, bearing);
+}
+
+/// Great-circle initial bearing from [from] to [to], in degrees (0-360,
+/// 0 = north, clockwise) — the standard formula for "which way do I turn to
+/// face the destination". Used to rotate the driver marker so it visibly
+/// points in its direction of travel between consecutive GPS fixes.
+double bearingBetween(
+  ({double lat, double lng}) from,
+  ({double lat, double lng}) to,
+) {
+  final lat1 = from.lat * (math.pi / 180);
+  final lat2 = to.lat * (math.pi / 180);
+  final dLng = (to.lng - from.lng) * (math.pi / 180);
+  final y = math.sin(dLng) * math.cos(lat2);
+  final x = math.cos(lat1) * math.sin(lat2) -
+      math.sin(lat1) * math.cos(lat2) * math.cos(dLng);
+  final deg = math.atan2(y, x) * (180 / math.pi);
+  return (deg + 360) % 360;
 }
 
 /// Imperative controls exposed to the parent of [AppMap]. Mirrors the subset
@@ -107,6 +135,15 @@ class _AppMapState extends State<AppMap> {
 
   final Map<AppMapMarkerKind, Uint8List> _iconCache = {};
 
+  // _syncMarkers is async but called fire-and-forget from didUpdateWidget,
+  // which can fire again (e.g. on a fast-following GPS tick) before the
+  // previous call finishes. Without serializing, two overlapping calls can
+  // race on _renderedMarkers and throw, silently stopping the driver marker
+  // from ever moving again with no visible error. Queued: a call that
+  // arrives mid-sync re-runs once more after the in-flight one finishes.
+  bool _markerSyncInFlight = false;
+  bool _markerSyncQueued = false;
+
   @override
   void initState() {
     super.initState();
@@ -165,13 +202,47 @@ class _AppMapState extends State<AppMap> {
       );
     }
     _markerManager = await map.annotations.createPointAnnotationManager();
+    // MAP alignment (not the VIEWPORT default) rotates icons relative to true
+    // north, so a driver marker's bearing keeps pointing the right physical
+    // direction even as the user rotates/tilts the map. Best-effort: this is
+    // a purely cosmetic setting, but an uncaught failure here would otherwise
+    // throw out of _onMapCreated and skip every line after it -- including
+    // creating the polyline manager and the very first marker sync, which
+    // would make every marker never appear or update at all.
+    try {
+      await _markerManager?.setIconRotationAlignment(mb.IconRotationAlignment.MAP);
+    } catch (e) {
+      debugPrint('AppMap: setIconRotationAlignment failed (non-fatal): $e');
+    }
     _polylineManager = await map.annotations.createPolylineAnnotationManager();
     await _syncMarkers();
     await _syncPolyline();
     if (mounted) widget.onMapReady?.call();
   }
 
+  /// Entry point every caller uses. Serializes against a concurrent
+  /// in-flight sync and never lets an exception from the platform channel
+  /// permanently stop future syncs -- logged and swallowed instead.
   Future<void> _syncMarkers() async {
+    if (_markerSyncInFlight) {
+      _markerSyncQueued = true;
+      return;
+    }
+    _markerSyncInFlight = true;
+    try {
+      await _syncMarkersNow();
+    } catch (e, st) {
+      debugPrint('AppMap: marker sync failed, will retry on next update: $e\n$st');
+    } finally {
+      _markerSyncInFlight = false;
+      if (_markerSyncQueued) {
+        _markerSyncQueued = false;
+        unawaited(_syncMarkers());
+      }
+    }
+  }
+
+  Future<void> _syncMarkersNow() async {
     final manager = _markerManager;
     if (manager == null) return;
 
@@ -189,6 +260,7 @@ class _AppMapState extends State<AppMap> {
     for (final marker in incoming.values) {
       final existing = _renderedMarkers[marker.id];
       final icon = await _iconFor(marker.kind);
+      final isDriver = marker.kind == AppMapMarkerKind.driver;
       final point = mb.Point(
         coordinates: mb.Position(marker.longitude, marker.latitude),
       );
@@ -198,6 +270,7 @@ class _AppMapState extends State<AppMap> {
             geometry: point,
             image: icon,
             iconSize: 1.0,
+            iconRotate: isDriver ? marker.bearing : null,
             textField: marker.title,
             textOffset: [0, 1.6],
             textSize: 12,
@@ -207,6 +280,7 @@ class _AppMapState extends State<AppMap> {
       } else {
         existing.geometry = point;
         existing.textField = marker.title;
+        if (isDriver) existing.iconRotate = marker.bearing;
         await manager.update(existing);
       }
     }
@@ -250,7 +324,7 @@ class _AppMapState extends State<AppMap> {
   Future<Uint8List> _iconFor(AppMapMarkerKind kind) async {
     final cached = _iconCache[kind];
     if (cached != null) return cached;
-    final bytes = await _renderPinBytes(_colorFor(kind));
+    final bytes = await _renderPinBytes(_colorFor(kind), isDriver: kind == AppMapMarkerKind.driver);
     _iconCache[kind] = bytes;
     return bytes;
   }
@@ -268,18 +342,39 @@ class _AppMapState extends State<AppMap> {
 
   // Mapbox's PointAnnotation needs raw PNG bytes; rasterize a small colored
   // pin at runtime so we don't have to ship asset PNGs.
-  Future<Uint8List> _renderPinBytes(Color color) async {
+  //
+  // [isDriver] adds a small chevron pointing "up" (north in image-space) at
+  // the rim. Combined with iconRotate + MAP rotation alignment in
+  // _syncMarkers, the whole pin — chevron included — turns to face the
+  // driver's actual direction of travel between consecutive GPS fixes, so
+  // the driver (and, on the client app's own map, the customer) can see at a
+  // glance which way they're heading, not just where they are. Delivery/
+  // pickup pins stay plain circles since they never move or rotate.
+  Future<Uint8List> _renderPinBytes(Color color, {bool isDriver = false}) async {
     final recorder = ui.PictureRecorder();
     final canvas = Canvas(recorder);
     const double size = 72;
     const double radius = 22;
+    const Offset center = Offset(size / 2, size / 2);
+
+    if (isDriver) {
+      final chevronPaint = Paint()..color = color;
+      final chevronTipY = center.dy - radius - 10;
+      final chevronPath = Path()
+        ..moveTo(center.dx, chevronTipY)
+        ..lineTo(center.dx - 7, chevronTipY + 10)
+        ..lineTo(center.dx + 7, chevronTipY + 10)
+        ..close();
+      canvas.drawPath(chevronPath, chevronPaint);
+    }
+
     final paintFill = Paint()..color = color;
     final paintStroke = Paint()
       ..color = Colors.white
       ..style = PaintingStyle.stroke
       ..strokeWidth = 4;
-    canvas.drawCircle(const Offset(size / 2, size / 2), radius, paintFill);
-    canvas.drawCircle(const Offset(size / 2, size / 2), radius, paintStroke);
+    canvas.drawCircle(center, radius, paintFill);
+    canvas.drawCircle(center, radius, paintStroke);
     final picture = recorder.endRecording();
     final image = await picture.toImage(size.toInt(), size.toInt());
     final byteData = await image.toByteData(format: ui.ImageByteFormat.png);

@@ -22,7 +22,7 @@
     <uses-permission android:name="android.permission.DISABLE_KEYGUARD" />
 
     <application
-        android:label="Cmandili Driver"
+        android:label="Amana Driver"
         android:name=".Application"
         android:icon="@mipmap/launcher_icon">
         <activity
