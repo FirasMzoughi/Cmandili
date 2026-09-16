@@ -2,6 +2,7 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/theme/app_colors.dart';
+import '../../../core/widgets/tunisia_phone_field.dart';
 import '../providers/auth_provider.dart';
 import 'package:cmandili_driver/l10n/app_localizations.dart';
 import '../../../core/providers/localization_provider.dart';
@@ -137,7 +138,7 @@ class _AuthScreenState extends ConsumerState<AuthScreen>
           _emailController.text.trim(),
           _passwordController.text,
           _nameController.text.trim(),
-          _phoneController.text.trim(),
+          TunisiaPhoneField.normalize(_phoneController),
         );
       }
     } catch (e) {
@@ -483,13 +484,10 @@ class _AuthScreenState extends ConsumerState<AuthScreen>
                                           screenHeight: screenHeight,
                                         ),
                                         SizedBox(height: screenHeight * 0.015),
-                                        _buildTextField(
+                                        TunisiaPhoneField(
                                           controller: _phoneController,
                                           label: AppLocalizations.of(context)!.phoneNumberLabel,
-                                          icon: Icons.phone_outlined,
-                                          keyboardType: TextInputType.phone,
-                                          screenWidth: screenWidth,
-                                          screenHeight: screenHeight,
+                                          invalidMessage: AppLocalizations.of(context)!.phoneInvalid,
                                         ),
                                         SizedBox(height: screenHeight * 0.015),
                                       ],
