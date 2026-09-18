@@ -1,5 +1,6 @@
 package com.cmandili.partner
 
+import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.media.AudioAttributes
@@ -56,17 +57,29 @@ class Application : FlutterApplication() {
                 .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
                 .build()
 
+            // _3 -> _4: importance and DND-bypass are also frozen at creation
+            // time, so raising the channel to IMPORTANCE_MAX and letting it
+            // through Do Not Disturb needs a new id. IMPORTANCE_HIGH shows a
+            // heads-up but IMPORTANCE_MAX is what reliably drives the
+            // full-screen intent on a locked screen.
+            nm.deleteNotificationChannel("cmandili_orders_urgent_3")
+
             nm.createNotificationChannel(
                 NotificationChannel(
-                    "cmandili_orders_urgent_3",
+                    "cmandili_orders_urgent_4",
                     "Urgent Order Updates",
-                    NotificationManager.IMPORTANCE_HIGH,
+                    NotificationManager.IMPORTANCE_MAX,
                 ).apply {
                     description = "Alarm-level alert for new incoming orders"
                     setSound(soundUri, alarmAttrs)
                     enableVibration(true)
                     vibrationPattern = longArrayOf(0, 500, 300, 700, 300, 700)
                     setShowBadge(true)
+                    // A restaurant loses the order if the alert is muted by a
+                    // Do Not Disturb schedule they forgot was on.
+                    setBypassDnd(true)
+                    enableLights(true)
+                    lockscreenVisibility = Notification.VISIBILITY_PUBLIC
                 }
             )
         }

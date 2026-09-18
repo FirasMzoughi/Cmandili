@@ -27,7 +27,7 @@ dependencies:
   supabase_flutter: ^2.3.0
   
   # Maps (only used in order_tracking_screen)
-  mapbox_maps_flutter: ^2.3.0
+  google_maps_flutter: ^2.9.0
 
   # UI & Images
   cached_network_image: ^3.3.0

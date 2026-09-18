@@ -19,17 +19,15 @@ import 'core/config/supabase_config.dart';
 import 'core/push/push_service.dart';
 import 'firebase_options.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
-import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // dotenv MUST resolve first — SupabaseConfig and the Mapbox token both
-  // read from it. Then run the remaining independent cold-start work in
+  // dotenv MUST resolve first — SupabaseConfig reads from it. The Google
+  // Maps key is read from the native manifest, not here. Then run the
+  // remaining independent cold-start work in
   // parallel (Firebase init + SharedPreferences load + Supabase bootstrap).
   await dotenv.load(fileName: '.env');
-
-  MapboxOptions.setAccessToken(dotenv.env['MAPBOX_PUBLIC_TOKEN'] ?? '');
 
   late SharedPreferences prefs;
   await Future.wait([

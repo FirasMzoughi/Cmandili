@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:cmandili_partner/l10n/app_localizations.dart';
+import '../../../core/push/push_service.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../profile/presentation/profile_screen.dart';
 import '../../profile/presentation/payout_screen.dart';
@@ -1210,6 +1211,10 @@ class _PendingOrderActionsState extends ConsumerState<_PendingOrderActions> {
     setState(() => _busy = true);
     try {
       await ref.read(audioAlertServiceProvider).stopAlert();
+      // The native alarm notification is ongoing + FLAG_INSISTENT, so it keeps
+      // ringing until explicitly cancelled; stopAlert() only silences the
+      // in-app player.
+      await PushService.instance.cancelOrderAlarm();
       await ref
           .read(partnerOrderRepositoryProvider)
           .updateOrderStatus(widget.order.id, OrderStatus.confirmed);

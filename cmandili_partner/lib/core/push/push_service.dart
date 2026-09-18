@@ -13,7 +13,7 @@ const String _kChannelDesc = 'Notifications about your orders';
 
 // Alarm channel for NEW orders — uses alarm audio attributes so Android
 // respects the sound even in DND. Must match the channel created at runtime.
-const String _kAlarmChannelId   = 'cmandili_orders_urgent_3';
+const String _kAlarmChannelId   = 'cmandili_orders_urgent_4';
 const String _kAlarmChannelName = 'Urgent Order updates';
 const String _kAlarmChannelDesc = 'Urgent alerts for new incoming orders';
 

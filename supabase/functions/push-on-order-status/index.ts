@@ -172,7 +172,16 @@ async function sendFcm(
     data: payload,
     android: {
       priority: 'high',
-      ...(isAlarm ? {} : { notification: { channel_id: 'cmandili_orders' } }),
+      // An offer is worthless once its accept window has passed, so don't let
+      // FCM hold and redeliver a stale one minutes later: better no alarm than
+      // an alarm for an order already given to someone else. Without an
+      // explicit ttl FCM defaults to four weeks of storage.
+      ...(isAlarm ? { ttl: '120s', direct_boot_ok: true } : {}),
+      // Must match the channel the apps actually create. The id was rotated to
+      // _v2 when the original was found to have been registered permanently
+      // silent; naming the dead id here would land non-alarm notifications on a
+      // channel that no longer exists.
+      ...(isAlarm ? {} : { notification: { channel_id: 'cmandili_orders_v2' } }),
     },
     apns: {
       headers: { 'apns-priority': '10' },
@@ -180,7 +189,13 @@ async function sendFcm(
       // plus content-available so the app is woken to play the alarm sound.
       payload: {
         aps: isAlarm
-          ? { alert: { title, body }, sound: 'new_order.wav', 'content-available': 1 }
+          // The bundled asset is new_order.mp3; naming a .wav that does not
+          // exist makes iOS fall back to silent.
+          ? {
+              alert: { title, body },
+              sound: { critical: 1, name: 'new_order.mp3', volume: 1.0 },
+              'content-available': 1,
+            }
           : { alert: { title, body } },
       },
     },

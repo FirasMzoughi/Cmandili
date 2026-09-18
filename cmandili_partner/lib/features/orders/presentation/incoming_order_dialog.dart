@@ -1,6 +1,7 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../../core/push/push_service.dart';
 import '../../../core/theme/app_colors.dart';
 import '../data/models/order.dart';
 import '../providers/audio_alert_provider.dart';
@@ -259,6 +260,10 @@ class IncomingOrderDialog extends ConsumerWidget {
   Future<void> _onAccept(BuildContext context, WidgetRef ref) async {
     // Stop audio immediately — don't wait for the stream update.
     await ref.read(audioAlertServiceProvider).stopAlert();
+    // The native alarm notification is ongoing + FLAG_INSISTENT, so it keeps
+    // ringing until explicitly cancelled; stopAlert() only silences the in-app
+    // player.
+    await PushService.instance.cancelOrderAlarm();
     try {
       await ref
           .read(partnerOrderRepositoryProvider)
@@ -319,6 +324,10 @@ class IncomingOrderDialog extends ConsumerWidget {
 
     if (confirmed == true && context.mounted) {
       await ref.read(audioAlertServiceProvider).stopAlert();
+    // The native alarm notification is ongoing + FLAG_INSISTENT, so it keeps
+    // ringing until explicitly cancelled; stopAlert() only silences the in-app
+    // player.
+    await PushService.instance.cancelOrderAlarm();
       try {
         await ref
             .read(partnerOrderRepositoryProvider)

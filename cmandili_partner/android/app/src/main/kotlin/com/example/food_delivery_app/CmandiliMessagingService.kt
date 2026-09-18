@@ -24,13 +24,13 @@ import com.google.firebase.messaging.RemoteMessage
  * The Dart foreground handler (FirebaseMessaging.onMessage) still fires
  * normally when the app is open — this service only handles background/terminated.
  *
- * Channel "cmandili_orders_urgent_3" is pre-created in Application.onCreate()
+ * Channel "cmandili_orders_urgent_4" is pre-created in Application.onCreate()
  * with AudioAttributes.USAGE_ALARM + custom sound.
  */
 class CmandiliMessagingService : FirebaseMessagingService() {
 
     companion object {
-        private const val ALARM_CHANNEL_ID = "cmandili_orders_urgent_3"
+        private const val ALARM_CHANNEL_ID = "cmandili_orders_urgent_4"
         private const val ALARM_NOTIF_ID   = 42   // matches _kAlarmNotifId in push_service.dart
     }
 
@@ -70,9 +70,17 @@ class CmandiliMessagingService : FirebaseMessagingService() {
             .setContentTitle(title)
             .setContentText(body)
             .setPriority(NotificationCompat.PRIORITY_MAX)
-            .setCategory(NotificationCompat.CATEGORY_ALARM)
+            // CATEGORY_CALL rather than CATEGORY_ALARM: Android gives call-style
+            // notifications the strongest lock-screen and Do Not Disturb
+            // treatment, which is what makes the full-screen intent fire
+            // reliably on a locked phone. Matches the driver app.
+            .setCategory(NotificationCompat.CATEGORY_CALL)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-            .setAutoCancel(true)
+            // Cannot be swiped away: the restaurant has to open the app and
+            // answer the order rather than flicking the alert off the shade.
+            // Paired with FLAG_INSISTENT below, this is what keeps it ringing.
+            .setOngoing(true)
+            .setAutoCancel(false)
             // Covers the lock screen like an incoming call. Requires USE_FULL_SCREEN_INTENT.
             .setFullScreenIntent(pendingIntent, true)
             .setContentIntent(pendingIntent)

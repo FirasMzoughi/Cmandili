@@ -13,7 +13,7 @@ const String _kChannelDesc = 'New deliveries and order updates';
 
 // Alarm channel — alarm AudioAttributes + max importance so the offer rings
 // even when the phone is in silent/vibrate mode.
-const String _kAlarmChannelId   = 'cmandili_driver_alarm_3';
+const String _kAlarmChannelId   = 'cmandili_driver_alarm_4';
 const String _kAlarmChannelName = 'Delivery Offer';
 const String _kAlarmChannelDesc =
     'Incoming delivery requests that require immediate attention';
@@ -350,7 +350,7 @@ class PushService {
     // notification's numAlertViolations climbing independently of DND/
     // volume/channel config — which then silently denies sound to whatever
     // alert-eligible notification fires next, including the unrelated
-    // cmandili_driver_alarm_3 delivery-offer channel. onlyAlertOnce stops a
+    // cmandili_driver_alarm_4 delivery-offer channel. onlyAlertOnce stops a
     // later update to the same order from re-triggering sound/vibration.
     final orderId = message.data['order_id'] as String?;
     final notifId = orderId != null && orderId.isNotEmpty

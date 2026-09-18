@@ -12,7 +12,6 @@ import 'core/providers/localization_provider.dart';
 import 'core/providers/theme_provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:firebase_core/firebase_core.dart';
-import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
 import 'core/config/supabase_config.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'core/push/push_service.dart';
@@ -22,11 +21,13 @@ import 'firebase_options.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // dotenv MUST resolve first — SupabaseConfig and the Mapbox token both
-  // read from it. Then run Supabase + Firebase in parallel.
+  // dotenv MUST resolve first — SupabaseConfig reads from it. Then run
+  // Supabase + Firebase in parallel.
+  //
+  // Google Maps needs no runtime token call: the key is read from the native
+  // manifest/plist at process start, so there is no equivalent of Mapbox's
+  // MapboxOptions.setAccessToken here.
   await dotenv.load(fileName: '.env');
-
-  MapboxOptions.setAccessToken(dotenv.env['MAPBOX_PUBLIC_TOKEN'] ?? '');
 
   await Future.wait([
     Supabase.initialize(
