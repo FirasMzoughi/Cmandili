@@ -52,7 +52,7 @@ class MenuRepository {
 
   Future<bool> updateFoodItem(FoodItem item) async {
     try {
-      await _supabase.from('food_items').update({
+      final rows = await _supabase.from('food_items').update({
         'name': item.name,
         'description': item.description,
         'image_url': item.imageUrl,
@@ -66,8 +66,13 @@ class MenuRepository {
         'happy_hour_price': item.happyHourPrice,
         'happy_hour_start': item.happyHourStart,
         'happy_hour_end': item.happyHourEnd,
-      }).eq('id', item.id);
-      return true;
+      }).eq('id', item.id).select('id');
+      // RLS filters rows, it does not raise: an UPDATE a partner is not
+      // allowed to make comes back 200 with zero rows and supabase-dart never
+      // throws. "No exception" is therefore not "saved" -- asking for the row
+      // back is the only way to tell the difference, and without it the app
+      // reported success on a write that changed nothing.
+      return rows.isNotEmpty;
     } catch (e) {
       debugPrint('Error updating food item: $e');
       return false;
@@ -138,7 +143,7 @@ class MenuRepository {
 
   Future<bool> updateGroceryItem(GroceryItem item) async {
     try {
-      await _supabase.from('grocery_items').update({
+      final rows = await _supabase.from('grocery_items').update({
         'name': item.name,
         'description': item.description,
         'image_url': item.imageUrl,
@@ -147,8 +152,13 @@ class MenuRepository {
         'unit': item.unit,
         'is_organic': item.isOrganic,
         'is_available': item.isAvailable,
-      }).eq('id', item.id);
-      return true;
+      }).eq('id', item.id).select('id');
+      // RLS filters rows, it does not raise: an UPDATE a partner is not
+      // allowed to make comes back 200 with zero rows and supabase-dart never
+      // throws. "No exception" is therefore not "saved" -- asking for the row
+      // back is the only way to tell the difference, and without it the app
+      // reported success on a write that changed nothing.
+      return rows.isNotEmpty;
     } catch (e) {
       debugPrint('Error updating grocery item: $e');
       return false;
@@ -179,12 +189,17 @@ class MenuRepository {
   }) async {
     try {
       final table = isGrocery ? 'grocery_items' : 'food_items';
-      await _supabase.from(table).update({
+      final rows = await _supabase.from(table).update({
         'discount_price': discountPrice,
         'discount_end_time': endTime.toIso8601String(),
         'discount_quantity': quantity,
-      }).eq('id', itemId);
-      return true;
+      }).eq('id', itemId).select('id');
+      // RLS filters rows, it does not raise: an UPDATE a partner is not
+      // allowed to make comes back 200 with zero rows and supabase-dart never
+      // throws. "No exception" is therefore not "saved" -- asking for the row
+      // back is the only way to tell the difference, and without it the app
+      // reported success on a write that changed nothing.
+      return rows.isNotEmpty;
     } catch (e) {
       debugPrint('Error setting happy hour: $e');
       return false;
@@ -195,12 +210,17 @@ class MenuRepository {
   Future<bool> clearHappyHour(String itemId, bool isGrocery) async {
     try {
       final table = isGrocery ? 'grocery_items' : 'food_items';
-      await _supabase.from(table).update({
+      final rows = await _supabase.from(table).update({
         'discount_price': null,
         'discount_end_time': null,
         'discount_quantity': null,
-      }).eq('id', itemId);
-      return true;
+      }).eq('id', itemId).select('id');
+      // RLS filters rows, it does not raise: an UPDATE a partner is not
+      // allowed to make comes back 200 with zero rows and supabase-dart never
+      // throws. "No exception" is therefore not "saved" -- asking for the row
+      // back is the only way to tell the difference, and without it the app
+      // reported success on a write that changed nothing.
+      return rows.isNotEmpty;
     } catch (e) {
       debugPrint('Error clearing happy hour: $e');
       return false;
@@ -363,4 +383,95 @@ class MenuRepository {
       'discountQuantity': db['discount_quantity'],
     };
   }
+
+  // ─── Generic vendor items (flowers, pets, gifts, bakery, electronics) ──────
+  //
+  // The food and grocery methods above write through the legacy views, which
+  // are filtered on their own category — a florist writing through them would
+  // insert a row that its own catalogue query then filters out. These go
+  // straight at `vendor_items`, so any category works.
+  //
+  // Restaurant-only fields (happy hour, vegetarian, prep time) are absent by
+  // design: they are meaningless for a bouquet, and putting them on every
+  // category's item form would be worse than leaving food on its own path.
+
+  Future<List<Map<String, dynamic>>> getVendorItems(String vendorId) async {
+    try {
+      final response = await _supabase
+          .from('vendor_items')
+          .select()
+          .eq('vendor_id', vendorId)
+          .order('sort_order');
+      return List<Map<String, dynamic>>.from(response as List);
+    } catch (e) {
+      debugPrint('Error fetching vendor items: $e');
+      return [];
+    }
+  }
+
+  Future<String?> addVendorItem({
+    required String vendorId,
+    required String name,
+    required double price,
+    String description = '',
+    String imageUrl = '',
+    String? category,
+    String? unit,
+    bool isAvailable = true,
+  }) async {
+    try {
+      final response = await _supabase.from('vendor_items').insert({
+        'vendor_id': vendorId,
+        'name': name,
+        'description': description,
+        'image_url': imageUrl,
+        'price': price,
+        'category': category,
+        'unit': unit,
+        'is_available': isAvailable,
+      }).select().single();
+      return response['id'] as String?;
+    } catch (e) {
+      debugPrint('Error adding vendor item: $e');
+      return null;
+    }
+  }
+
+  Future<bool> updateVendorItem(
+    String itemId,
+    Map<String, dynamic> changes,
+  ) async {
+    try {
+      final rows = await _supabase
+          .from('vendor_items')
+          .update(changes)
+          .eq('id', itemId)
+          .select('id');
+      // RLS filters rows, it does not raise: an UPDATE a partner is not
+      // allowed to make comes back 200 with zero rows and supabase-dart never
+      // throws. "No exception" is therefore not "saved" -- asking for the row
+      // back is the only way to tell the difference, and without it the app
+      // reported success on a write that changed nothing.
+      return rows.isNotEmpty;
+    } catch (e) {
+      debugPrint('Error updating vendor item: $e');
+      return false;
+    }
+  }
+
+  Future<bool> deleteVendorItem(String itemId) async {
+    try {
+      await _supabase.from('vendor_items').delete().eq('id', itemId);
+      return true;
+    } catch (e) {
+      debugPrint('Error deleting vendor item: $e');
+      return false;
+    }
+  }
+
+  /// Availability toggle that works for any category. The older
+  /// [updateItemAvailability] resolves a legacy view from an isGrocery flag,
+  /// which cannot express "florist".
+  Future<bool> setVendorItemAvailability(String itemId, bool isAvailable) =>
+      updateVendorItem(itemId, {'is_available': isAvailable});
 }

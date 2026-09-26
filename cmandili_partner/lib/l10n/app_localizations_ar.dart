@@ -330,6 +330,12 @@ class AppLocalizationsAr extends AppLocalizations {
   String get addProduct => 'إضافة منتج';
 
   @override
+  String get editDish => 'تعديل الطبق';
+
+  @override
+  String get editProduct => 'تعديل المنتج';
+
+  @override
   String get happyHourBadge => 'س.س';
 
   @override

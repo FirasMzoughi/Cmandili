@@ -81,13 +81,19 @@ class AuthRepository {
     final user = response.user;
     if (user == null) throw 'Sign up failed';
 
-    // Insert into partners table and create corresponding restaurant/supermarket record
+    // Insert into partners table and create the corresponding shop record
     try {
-      // 1. Create the restaurant or supermarket record first
-      final tableName = partnerType == 'restaurant' ? 'restaurants' : 'supermarkets';
+      // 1. Create the shop row first, in the generic `vendors` table. The
+      //    old code branched between two hardcoded tables, which meant a
+      //    florist or pet shop had nowhere to sign up.
       final entityRow = await _supabase
-          .from(tableName)
-          .insert({'name': name, 'is_open': true})
+          .from('vendors')
+          .insert({
+            'name': name,
+            'category': vendorCategoryForPartnerType(partnerType),
+            'is_open': true,
+            'owner_id': user.id,
+          })
           .select('id')
           .single();
       final entityId = entityRow['id'] as String;
@@ -121,21 +127,24 @@ class AuthRepository {
         .eq('user_id', user.id)
         .maybeSingle();
 
-    final tableName = partnerType == 'restaurant' ? 'restaurants' : 'supermarkets';
-
     String entityId;
     if (existing != null && existing['entity_id'] != null && existing['partner_type'] == partnerType) {
       // Reuse the entity already linked to this partner; just rename it.
       entityId = existing['entity_id'] as String;
       await _supabase
-          .from(tableName)
+          .from('vendors')
           .update({'name': name})
           .eq('id', entityId);
     } else {
-      // Create a fresh restaurant/supermarket row.
+      // Create a fresh shop row in the generic vendors table.
       final entityRow = await _supabase
-          .from(tableName)
-          .insert({'name': name, 'is_open': true})
+          .from('vendors')
+          .insert({
+            'name': name,
+            'category': vendorCategoryForPartnerType(partnerType),
+            'is_open': true,
+            'owner_id': user.id,
+          })
           .select('id')
           .single();
       entityId = entityRow['id'] as String;

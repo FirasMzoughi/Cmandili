@@ -7,6 +7,7 @@ import '../providers/menu_provider.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../data/models/food_item.dart';
 import '../data/models/grocery_item.dart';
+import '../data/models/vendor_item.dart';
 import 'add_edit_item_screen.dart';
 import 'happy_hour_setup_screen.dart';
 import '../providers/menu_scanner_provider.dart';
@@ -179,9 +180,12 @@ class _MenuScreenState extends ConsumerState<MenuScreen> {
               final filtered = _searchQuery.isEmpty
                   ? items
                   : items.where((item) {
-                      final name = item is FoodItem
-                          ? item.name.toLowerCase()
-                          : (item as GroceryItem).name.toLowerCase();
+                      final name = switch (item) {
+                        FoodItem i => i.name.toLowerCase(),
+                        GroceryItem i => i.name.toLowerCase(),
+                        VendorItem i => i.name.toLowerCase(),
+                        _ => '',
+                      };
                       return name.contains(_searchQuery);
                     }).toList();
 
@@ -306,7 +310,13 @@ class _MenuScreenState extends ConsumerState<MenuScreen> {
         foregroundColor: Colors.white,
         icon: const Icon(Icons.add_rounded),
         label: Text(
-          'Add ${profileAsync.value?.partnerType == "restaurant" ? l.addDish : l.addProduct}',
+          // The localized string already contains the verb, so the old
+          // 'Add ' prefix rendered "Add Add Dish". Every non-restaurant
+          // type (bakery, flowers, pets, gifts, electronics) shares the
+          // generic "produit" wording rather than a per-category noun.
+          profileAsync.value?.partnerType == 'restaurant'
+              ? l.addDish
+              : l.addProduct,
           style: const TextStyle(fontWeight: FontWeight.w700),
         ),
       ),
@@ -353,6 +363,7 @@ class _MenuScreenState extends ConsumerState<MenuScreen> {
       if (item is GroceryItem) {
         cats.add(item.category.toString().split('.').last);
       }
+      if (item is VendorItem && item.category.isNotEmpty) cats.add(item.category);
     }
     return cats.toList()..sort();
   }
@@ -360,7 +371,8 @@ class _MenuScreenState extends ConsumerState<MenuScreen> {
   void _goToAddEdit(BuildContext context, WidgetRef ref,
       {required String partnerType,
       FoodItem? foodItem,
-      GroceryItem? groceryItem}) {
+      GroceryItem? groceryItem,
+      VendorItem? vendorItem}) {
     Navigator.push(
       context,
       MaterialPageRoute(
@@ -368,6 +380,7 @@ class _MenuScreenState extends ConsumerState<MenuScreen> {
           partnerType: partnerType,
           existingFoodItem: foodItem,
           existingGroceryItem: groceryItem,
+          existingVendorItem: vendorItem,
         ),
       ),
     ).then((_) => ref.invalidate(menuItemsProvider));
@@ -445,7 +458,8 @@ class _MenuItemCardState extends ConsumerState<_MenuItemCard> {
   void _initAvailability() {
     final fi = widget.item is FoodItem ? widget.item as FoodItem : null;
     final gi = widget.item is GroceryItem ? widget.item as GroceryItem : null;
-    _isAvailable = fi?.isAvailable ?? gi?.isAvailable ?? true;
+    final vi = widget.item is VendorItem ? widget.item as VendorItem : null;
+    _isAvailable = fi?.isAvailable ?? gi?.isAvailable ?? vi?.isAvailable ?? true;
   }
 
   Future<void> _toggleAvailability(bool value) async {
@@ -454,11 +468,15 @@ class _MenuItemCardState extends ConsumerState<_MenuItemCard> {
     // 1. Optimistic update
     setState(() => _isAvailable = value);
 
-    final isFood = widget.item is FoodItem;
     final isGrocery = widget.item is GroceryItem;
-    
-    final itemId = isFood ? (widget.item as FoodItem).id : 
-                   isGrocery ? (widget.item as GroceryItem).id : '';
+    final isVendor = widget.item is VendorItem;
+
+    final itemId = switch (widget.item) {
+      FoodItem i => i.id,
+      GroceryItem i => i.id,
+      VendorItem i => i.id,
+      _ => '',
+    };
 
     if (itemId.isEmpty) {
       if (mounted) {
@@ -476,11 +494,15 @@ class _MenuItemCardState extends ConsumerState<_MenuItemCard> {
     try {
       // 2. Call backend
       final repo = ref.read(menuRepositoryProvider);
-      final success = await repo.updateItemAvailability(
-        itemId, 
-        value, 
-        isGrocery: isGrocery,
-      );
+      // updateItemAvailability only knows the two legacy views; vendor items
+      // live in their own table.
+      final success = isVendor
+          ? await repo.updateVendorItem(itemId, {'is_available': value})
+          : await repo.updateItemAvailability(
+              itemId,
+              value,
+              isGrocery: isGrocery,
+            );
 
       // 3. Handle failure (Rollback)
       if (!success) {
@@ -515,12 +537,16 @@ class _MenuItemCardState extends ConsumerState<_MenuItemCard> {
     final l = AppLocalizations.of(context)!;
     final fi = widget.item is FoodItem ? widget.item as FoodItem : null;
     final gi = widget.item is GroceryItem ? widget.item as GroceryItem : null;
+    final vi = widget.item is VendorItem ? widget.item as VendorItem : null;
 
-    final name = fi?.name ?? gi?.name ?? '';
-    final price = fi?.price ?? gi?.price ?? 0.0;
-    final imageUrl = fi?.imageUrl ?? gi?.imageUrl ?? '';
+    final name = fi?.name ?? gi?.name ?? vi?.name ?? '';
+    final price = fi?.price ?? gi?.price ?? vi?.price ?? 0.0;
+    final imageUrl = fi?.imageUrl ?? gi?.imageUrl ?? vi?.imageUrl ?? '';
+    // Happy hour stays null for vendor items -- the concept does not exist on
+    // that table, so the badge simply never shows for those categories.
     final category = fi?.category ??
         gi?.category.toString().split('.').last ??
+        vi?.category ??
         '';
     final hasHappyHour =
         (fi?.discountPrice != null && fi?.discountEndTime != null) ||
@@ -676,38 +702,45 @@ class _MenuItemCardState extends ConsumerState<_MenuItemCard> {
                         partnerType: widget.partnerType,
                         existingFoodItem: fi,
                         existingGroceryItem: gi,
+                        existingVendorItem: vi,
                       ),
                     ),
                   ).then((_) => ref.invalidate(menuItemsProvider)),
                 ),
-                _divider(),
-                _actionButton(
-                  context,
-                  icon: Icons.local_fire_department_rounded,
-                  label: l.happyHour,
-                  color: AppColors.secondary,
-                  onTap: () => Navigator.push(
+                // Hidden for vendor items: HappyHourSetupScreen only knows the
+                // two legacy tables, and `isGrocery` would aim the write at
+                // grocery_items for an id that lives in vendor_items.
+                if (vi == null) ...[
+                  _divider(),
+                  _actionButton(
                     context,
-                    MaterialPageRoute(
-                      builder: (_) => HappyHourSetupScreen(
-                        itemId: itemId,
-                        itemName: name,
-                        originalPrice: price,
-                        isGrocery: !widget.isRestaurant,
-                        currentDiscountPrice: discountPrice,
-                        currentEndTime: discountEndTime != null ? DateTime.tryParse(discountEndTime) : null,
-                        currentQuantity: discountQuantity,
+                    icon: Icons.local_fire_department_rounded,
+                    label: l.happyHour,
+                    color: AppColors.secondary,
+                    onTap: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => HappyHourSetupScreen(
+                          itemId: itemId,
+                          itemName: name,
+                          originalPrice: price,
+                          isGrocery: !widget.isRestaurant,
+                          currentDiscountPrice: discountPrice,
+                          currentEndTime: discountEndTime != null ? DateTime.tryParse(discountEndTime) : null,
+                          currentQuantity: discountQuantity,
+                        ),
                       ),
-                    ),
-                  ).then((_) => ref.invalidate(menuItemsProvider)),
-                ),
+                    ).then((_) => ref.invalidate(menuItemsProvider)),
+                  ),
+                ],
                 _divider(),
                 _actionButton(
                   context,
                   icon: Icons.delete_outline_rounded,
                   label: l.deleteAction,
                   color: AppColors.error,
-                  onTap: () => _confirmDelete(context, ref, itemId, widget.isRestaurant),
+                  onTap: () => _confirmDelete(context, ref, itemId,
+                      isRestaurant: widget.isRestaurant, isVendor: vi != null),
                 ),
               ],
             ),
@@ -761,8 +794,8 @@ class _MenuItemCardState extends ConsumerState<_MenuItemCard> {
     return Container(width: 1, height: 36, color: AppColors.textLight.withOpacity(0.1));
   }
 
-  void _confirmDelete(
-      BuildContext context, WidgetRef ref, String itemId, bool isRestaurant) {
+  void _confirmDelete(BuildContext context, WidgetRef ref, String itemId,
+      {required bool isRestaurant, required bool isVendor}) {
     final l = AppLocalizations.of(context)!;
     showDialog(
       context: context,
@@ -782,6 +815,8 @@ class _MenuItemCardState extends ConsumerState<_MenuItemCard> {
               final repo = ref.read(menuRepositoryProvider);
               if (isRestaurant) {
                 await repo.deleteFoodItem(itemId);
+              } else if (isVendor) {
+                await repo.deleteVendorItem(itemId);
               } else {
                 await repo.deleteGroceryItem(itemId);
               }

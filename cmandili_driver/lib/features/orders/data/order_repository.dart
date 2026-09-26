@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'models/order.dart';
+import '../../../core/services/resilient_rows.dart';
 
 class OrderRepository {
   final _supabase = Supabase.instance.client;
@@ -59,10 +60,19 @@ class OrderRepository {
     }
 
     await refreshCustomer();
-    await for (final event in _supabase
-        .from('orders')
-        .stream(primaryKey: ['id'])
-        .eq('id', orderId)) {
+    // resilientRows keeps the screen alive if the realtime channel drops:
+    // it loads over REST first and polls until the socket reconnects.
+    await for (final event in resilientRows(
+      fetch: () async => (await _supabase
+              .from('orders')
+              .select()
+              .eq('id', orderId) as List)
+          .cast<Map<String, dynamic>>(),
+      live: () => _supabase
+          .from('orders')
+          .stream(primaryKey: ['id'])
+          .eq('id', orderId),
+    )) {
       if (event.isEmpty) {
         throw Exception('Order not found');
       }

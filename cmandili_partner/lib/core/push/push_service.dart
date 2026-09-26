@@ -273,10 +273,15 @@ class PushService {
           category: isNewOrder
               ? AndroidNotificationCategory.alarm
               : AndroidNotificationCategory.message,
-          enableVibration: isNewOrder,
+          // Vibration on BOTH paths. Gating it on isNewOrder left every
+          // status update silent-and-still: no sound override, no buzz — a
+          // partner with the phone face-down on the counter noticed nothing.
+          enableVibration: true,
           vibrationPattern: isNewOrder
+              // Long insistent pattern for a new order.
               ? Int64List.fromList([0, 500, 300, 700, 300, 700])
-              : null,
+              // Short double-buzz for an ordinary status change.
+              : Int64List.fromList([0, 250, 150, 250]),
         ),
         iOS: DarwinNotificationDetails(
           presentSound: true,

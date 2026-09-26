@@ -70,7 +70,7 @@
              manifest at process start, so it must live here. -->
         <meta-data
             android:name="com.google.android.geo.API_KEY"
-            android:value="AIzaSyB7OWrWJqmgV_ZU9EYFMxBYC_TOHwgy0" />
+            android:value="AIzaSyDb7OWrwUqmgV_ZU9EYYFMxBYc_TOHwgy0" />
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
         <meta-data

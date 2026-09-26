@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../auth/data/models/partner_model.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../auth/providers/auth_provider.dart';
@@ -70,7 +71,18 @@ class ProfileScreen extends ConsumerWidget {
                           ),
                         ),
                         Text(
-                          profile?.partnerType == 'restaurant' ? AppLocalizations.of(context)!.restaurantPartner : AppLocalizations.of(context)!.supermarketPartner,
+                          // Only the two legacy types have their own
+                          // translated string; every newer category falls back
+                          // to its picker label. Before this, a florist's
+                          // account read "Partenaire supermarche".
+                          switch (profile?.partnerType) {
+                            'restaurant' =>
+                              AppLocalizations.of(context)!.restaurantPartner,
+                            'supermarket' =>
+                              AppLocalizations.of(context)!.supermarketPartner,
+                            final t? => partnerTypeLabel(t),
+                            _ => AppLocalizations.of(context)!.partner,
+                          },
                           style: TextStyle(
                             color: Colors.white70,
                             fontSize: screenWidth * 0.035,

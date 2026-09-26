@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:url_launcher/url_launcher.dart';
 import 'package:cmandili_partner/l10n/app_localizations.dart';
 import '../../../core/theme/app_colors.dart';
+import '../../../core/widgets/customer_contact.dart';
+import '../../auth/providers/auth_provider.dart';
 import '../data/models/order.dart';
 import '../providers/partner_orders_provider.dart';
 import 'widgets/voice_note_player.dart';
@@ -168,6 +169,13 @@ class OrderDetailScreen extends ConsumerWidget {
             ),
           ],
 
+          // Money trail: answers "has the driver collected, and what is my
+          // share?" without the partner having to ask anyone. Commission is
+          // only ever charged once the cash is actually in hand, so an order
+          // that is still in transit shows as pending rather than as a debt.
+          const SizedBox(height: 12),
+          _PaymentStatusSection(order: order),
+
           const SizedBox(height: 24),
 
           // Self-delivery banner: shown when the waterfall failed and the
@@ -192,9 +200,125 @@ class OrderDetailScreen extends ConsumerWidget {
                 child: Text(l.updateOrderStatus, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
               ),
             ),
+
+          // Cancel stays available only while the food is still in the shop.
+          // After pickup the driver is already carrying it, so cancelling
+          // would strand a delivery the customer is waiting on.
+          if (_canPartnerCancel(order)) ...[
+            const SizedBox(height: 12),
+            SizedBox(
+              width: double.infinity,
+              height: 50,
+              child: OutlinedButton.icon(
+                onPressed: () => _showCancelSheet(context, ref, order),
+                icon: const Icon(Icons.cancel_outlined, size: 20),
+                label: const Text('Annuler la commande',
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: AppColors.error,
+                  side: BorderSide(color: AppColors.error.withValues(alpha: 0.5)),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                ),
+              ),
+            ),
+          ],
         ],
       ),
     );
+  }
+
+  /// The shop may still pull an order back while it holds the goods. Mirrors
+  /// the `inFilter` guard in [PartnerOrderRepository.cancelOrderByPartner] —
+  /// the button hides for the same statuses the server refuses, so the UI
+  /// never offers an action that would silently fail.
+  static bool _canPartnerCancel(Order order) =>
+      order.status == OrderStatus.pending ||
+      order.status == OrderStatus.confirmed ||
+      order.status == OrderStatus.preparing ||
+      order.status == OrderStatus.ready;
+
+  static const _partnerCancelReasons = [
+    'Article en rupture de stock',
+    'Boutique fermée',
+    'Problème en cuisine',
+    'Commande en double',
+    'Autre',
+  ];
+
+  Future<void> _showCancelSheet(
+      BuildContext context, WidgetRef ref, Order order) async {
+    final reason = await showModalBottomSheet<String>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(
+                  width: 40, height: 4,
+                  decoration: BoxDecoration(
+                      color: AppColors.textLight.withValues(alpha: 0.4),
+                      borderRadius: BorderRadius.circular(2)),
+                ),
+              ),
+              const SizedBox(height: 16),
+              const Text('Annuler la commande',
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 4),
+              const Text(
+                'Le client sera prévenu immédiatement. '
+                'Aucune commission ne sera prélevée.',
+                style: TextStyle(fontSize: 13, color: AppColors.textLight),
+              ),
+              const SizedBox(height: 16),
+              ..._partnerCancelReasons.map((r) => ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: Text(r,
+                        style: const TextStyle(fontWeight: FontWeight.w500)),
+                    trailing: const Icon(Icons.chevron_right, size: 20),
+                    onTap: () => Navigator.pop(ctx, r),
+                  )),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    if (reason == null || !context.mounted) return;
+
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      final ok = await ref
+          .read(partnerOrderRepositoryProvider)
+          .cancelOrderByPartner(order.id, reason);
+      if (!context.mounted) return;
+      if (ok) {
+        Navigator.pop(context);
+        messenger.showSnackBar(const SnackBar(
+          content: Text('Commande annulée.'),
+          backgroundColor: AppColors.error,
+        ));
+      } else {
+        // Someone moved the order on while the sheet was open.
+        messenger.showSnackBar(const SnackBar(
+          content: Text(
+              "Trop tard : la commande n'est plus annulable. Actualisez."),
+          backgroundColor: AppColors.error,
+        ));
+      }
+    } catch (e) {
+      messenger.showSnackBar(SnackBar(
+        content: Text('Échec de l\'annulation : $e'),
+        backgroundColor: AppColors.error,
+      ));
+    }
   }
 
   bool _showSelfDeliveryBanner(Order o) {
@@ -210,7 +334,13 @@ class OrderDetailScreen extends ConsumerWidget {
   }
 
   void _showStatusSheet(BuildContext context, WidgetRef ref) {
-    final nextStatuses = _nextStatuses(order.status);
+    final partnerType = ref.read(partnerProfileProvider).valueOrNull?.partnerType;
+    final nextStatuses = _nextStatuses(
+      order.status,
+      // Par defaut on garde l'etape de preparation : si le profil n'est pas
+      // encore charge, mieux vaut un bouton de trop qu'un statut saute.
+      skipsPreparation: partnerType != null && partnerType != 'restaurant',
+    );
     showModalBottomSheet(
       context: context,
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
@@ -257,10 +387,27 @@ class OrderDetailScreen extends ConsumerWidget {
     );
   }
 
-  List<OrderStatus> _nextStatuses(OrderStatus current) {
+  /// Seuls les restaurants preparent. Pour toutes les autres categories --
+  /// supermarche, patisserie, fleurs, animalerie, cadeaux, electronique -- la
+  /// commande est rassemblee sur place et passe directement de Acceptee a
+  /// Prete : afficher un bouton "Preparer" leur ferait ajouter une etape qui
+  /// ne correspond a rien de leur cote.
+  ///
+  /// Derive de partner_type plutot que d'un drapeau par boutique : la regle
+  /// est bien par categorie, et aucun attribut de ce genre n'existe en base
+  /// (le `sansPreparation` du diagramme de classes n'a jamais ete implemente).
+  /// Sauter `preparing` ne change rien cote base : aucun trigger ni contrainte
+  /// n'impose l'ordre des statuts, le dispatch livreur se declenche sur
+  /// l'entree en 'ready' quel que soit le statut precedent, et `confirmed_at`
+  /// comme `ready_at` sont horodates sur leurs propres statuts.
+  List<OrderStatus> _nextStatuses(OrderStatus current, {required bool skipsPreparation}) {
     switch (current) {
       case OrderStatus.pending: return [OrderStatus.confirmed, OrderStatus.cancelled];
-      case OrderStatus.confirmed: return [OrderStatus.preparing, OrderStatus.cancelled];
+      case OrderStatus.confirmed:
+        return [
+          skipsPreparation ? OrderStatus.ready : OrderStatus.preparing,
+          OrderStatus.cancelled,
+        ];
       case OrderStatus.preparing: return [OrderStatus.ready];
       case OrderStatus.ready: return [OrderStatus.pickedUp, OrderStatus.onTheWay];
       case OrderStatus.pickedUp:
@@ -432,6 +579,76 @@ class _Section extends StatelessWidget {
   }
 }
 
+/// Where the money for this order stands, from the shop's point of view.
+///
+/// The partner's recurring question is "when does the driver hand over my
+/// money, and what did the platform take?" — previously answerable only by
+/// asking an admin. Cash is collected on delivery, so the honest answer has
+/// three stages, and the card names whichever one the order is in.
+class _PaymentStatusSection extends StatelessWidget {
+  final Order order;
+  const _PaymentStatusSection({required this.order});
+
+  @override
+  Widget build(BuildContext context) {
+    final cancelled = order.status == OrderStatus.cancelled;
+    final collected = order.status == OrderStatus.delivered;
+
+    final (Color color, IconData icon, String title, String detail) = cancelled
+        ? (
+            AppColors.textSecondary,
+            Icons.block,
+            'Commande annulée',
+            'Aucun montant encaissé, aucune commission prélevée.',
+          )
+        : collected
+            ? (
+                AppColors.success,
+                Icons.check_circle,
+                'Encaissé par le livreur',
+                'Le livreur a collecté ${order.total.toStringAsFixed(2)} DT. '
+                    'Votre part sera versée au prochain règlement.',
+              )
+            : (
+                Colors.orange,
+                Icons.schedule,
+                'En attente d\'encaissement',
+                'La commission n\'est prélevée qu\'une fois '
+                    'l\'argent collecté par le livreur.',
+              );
+
+    return _Section(
+      title: 'Paiement',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(icon, color: color, size: 20),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(title,
+                    style: TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w600,
+                        color: color)),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text(detail,
+              style: const TextStyle(
+                  fontSize: 13, color: AppColors.textSecondary, height: 1.4)),
+          if (collected) ...[
+            const Divider(height: 20),
+            _PriceRow(label: 'Encaissé', value: order.total),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
 class _CustomerSection extends StatelessWidget {
   final Order order;
   const _CustomerSection({required this.order});
@@ -476,23 +693,16 @@ class _CustomerSection extends StatelessWidget {
               children: [
                 Text(name, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15)),
                 if (phone != null) ...[
-                  const SizedBox(height: 2),
-                  Text(phone, style: const TextStyle(color: AppColors.textSecondary, fontSize: 13)),
+                  const SizedBox(height: 4),
+                  // Number plus call AND WhatsApp. A single call icon was not
+                  // enough: reaching a customer about a missing item or a
+                  // wrong address often fails on a voice call and succeeds on
+                  // WhatsApp, which works on data alone.
+                  CustomerContact(phone: phone, compact: true),
                 ],
               ],
             ),
           ),
-          if (phone != null)
-            IconButton(
-              tooltip: l.callCustomer,
-              icon: const Icon(Icons.phone, color: AppColors.success),
-              onPressed: () async {
-                final uri = Uri(scheme: 'tel', path: phone);
-                if (await canLaunchUrl(uri)) {
-                  await launchUrl(uri);
-                }
-              },
-            ),
         ],
       ),
     );

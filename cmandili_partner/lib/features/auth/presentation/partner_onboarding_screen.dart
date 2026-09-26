@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:cmandili_partner/l10n/app_localizations.dart';
 import '../../../core/theme/app_colors.dart';
+import '../data/models/partner_model.dart';
 import '../providers/auth_provider.dart';
 
 class PartnerOnboardingScreen extends ConsumerStatefulWidget {
@@ -72,8 +73,19 @@ class _PartnerOnboardingScreenState extends ConsumerState<PartnerOnboardingScree
             DropdownButtonFormField<String>(
               value: _partnerType,
               items: [
-                DropdownMenuItem(value: 'restaurant', child: Text(l.restaurant)),
-                DropdownMenuItem(value: 'supermarket', child: Text(l.supermarket)),
+                // Driven by kPartnerTypes so a newly launched shop type
+                // appears here and in the email sign-up form together. The
+                // two original entries keep their translated labels; the
+                // newer ones carry their own, since they have no l10n keys.
+                for (final option in kPartnerTypes)
+                  DropdownMenuItem(
+                    value: option.type,
+                    child: Text(switch (option.type) {
+                      'restaurant' => l.restaurant,
+                      'supermarket' => l.supermarket,
+                      _ => '${option.icon}  ${option.label}',
+                    }),
+                  ),
               ],
               onChanged: (val) => setState(() => _partnerType = val ?? 'restaurant'),
               decoration: InputDecoration(

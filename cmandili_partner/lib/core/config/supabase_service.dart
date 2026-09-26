@@ -21,7 +21,10 @@ class SupabaseService {
     try {
       final response = await client
           .from('orders')
-          .select('*, restaurants(*)')
+          // Disambiguated FK — see the note in the driver app: orders now
+          // reaches `restaurants` by two paths and PostgREST errors out
+          // (PGRST201) unless the constraint is named.
+          .select('*, restaurants!orders_restaurant_id_fkey(*)')
           .eq('restaurant_id', partnerId)
           .order('created_at', ascending: false)
           .limit(50);

@@ -2,6 +2,7 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/theme/app_colors.dart';
+import '../data/models/partner_model.dart';
 import '../providers/auth_provider.dart';
 import 'package:cmandili_partner/l10n/app_localizations.dart';
 import '../../../core/providers/localization_provider.dart';
@@ -807,81 +808,55 @@ class _AuthScreenState extends ConsumerState<AuthScreen>
           ),
         ),
         const SizedBox(height: 8),
-        Row(
+        // Wrapping grid rather than a fixed two-card row: the platform now
+        // takes florists, pet shops, bakeries, gift shops and electronics
+        // stores, and a Row of Expanded cards cannot grow past two or three
+        // without squeezing the labels to nothing.
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
           children: [
-            Expanded(
-              child: GestureDetector(
-                onTap: () => setState(() => _partnerType = 'restaurant'),
+            for (final option in kPartnerTypes)
+              GestureDetector(
+                onTap: () => setState(() => _partnerType = option.type),
                 child: AnimatedContainer(
                   duration: const Duration(milliseconds: 200),
-                  padding: EdgeInsets.symmetric(vertical: screenHeight * 0.015),
+                  padding: EdgeInsets.symmetric(
+                    vertical: screenHeight * 0.014,
+                    horizontal: screenWidth * 0.035,
+                  ),
                   decoration: BoxDecoration(
-                    color: _partnerType == 'restaurant' ? AppColors.primary : AppColors.background,
+                    color: _partnerType == option.type
+                        ? AppColors.primary
+                        : AppColors.background,
                     borderRadius: BorderRadius.circular(screenWidth * 0.03),
                     border: Border.all(
-                      color: _partnerType == 'restaurant' ? AppColors.primary : AppColors.textLight.withOpacity(0.2),
+                      color: _partnerType == option.type
+                          ? AppColors.primary
+                          : AppColors.textLight.withValues(alpha: 0.2),
                       width: 1.5,
                     ),
                   ),
                   child: Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
+                    mainAxisSize: MainAxisSize.min,
                     children: [
-                      Icon(
-                        Icons.restaurant_rounded,
-                        color: _partnerType == 'restaurant' ? Colors.white : AppColors.textSecondary,
-                        size: screenWidth * 0.05,
-                      ),
+                      Text(option.icon,
+                          style: TextStyle(fontSize: screenWidth * 0.042)),
                       const SizedBox(width: 6),
                       Text(
-                        'Restaurant',
+                        option.label,
                         style: TextStyle(
-                          fontSize: screenWidth * 0.035,
+                          fontSize: screenWidth * 0.034,
                           fontWeight: FontWeight.w600,
-                          color: _partnerType == 'restaurant' ? Colors.white : AppColors.textSecondary,
+                          color: _partnerType == option.type
+                              ? Colors.white
+                              : AppColors.textSecondary,
                         ),
                       ),
                     ],
                   ),
                 ),
               ),
-            ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: GestureDetector(
-                onTap: () => setState(() => _partnerType = 'supermarket'),
-                child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 200),
-                  padding: EdgeInsets.symmetric(vertical: screenHeight * 0.015),
-                  decoration: BoxDecoration(
-                    color: _partnerType == 'supermarket' ? AppColors.primary : AppColors.background,
-                    borderRadius: BorderRadius.circular(screenWidth * 0.03),
-                    border: Border.all(
-                      color: _partnerType == 'supermarket' ? AppColors.primary : AppColors.textLight.withOpacity(0.2),
-                      width: 1.5,
-                    ),
-                  ),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(
-                        Icons.store_rounded,
-                        color: _partnerType == 'supermarket' ? Colors.white : AppColors.textSecondary,
-                        size: screenWidth * 0.05,
-                      ),
-                      const SizedBox(width: 6),
-                      Text(
-                        'Supermarket',
-                        style: TextStyle(
-                          fontSize: screenWidth * 0.035,
-                          fontWeight: FontWeight.w600,
-                          color: _partnerType == 'supermarket' ? Colors.white : AppColors.textSecondary,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
           ],
         ),
       ],

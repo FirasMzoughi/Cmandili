@@ -105,6 +105,8 @@
     "couldNotLoadItems": "Impossible de charger les articles.\nVérifiez votre connexion.",
     "addDish": "Ajouter un plat",
     "addProduct": "Ajouter un produit",
+    "editDish": "Modifier le plat",
+    "editProduct": "Modifier le produit",
     "happyHourBadge": "HH",
     "edit": "Modifier",
     "deleteAction": "Supprimer",

@@ -1,6 +1,7 @@
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../../../core/services/resilient_rows.dart';
 import '../data/models/order.dart';
 
 final _supabase = Supabase.instance.client;
@@ -43,10 +44,21 @@ final currentDriverIdProvider = FutureProvider<String?>((ref) async {
 // orders_with_customer keyed by id. Cheaper than joining profiles in Dart on
 // every event.
 final availableOrdersProvider = StreamProvider<List<Order>>((ref) async* {
-  await for (final rows in _supabase
-      .from('orders')
-      .stream(primaryKey: ['id'])
-      .order('created_at', ascending: false)) {
+  // Filtered server-side to 'ready' so the channel only carries rows a
+  // driver could actually take, instead of every order in the system.
+  await for (final rows in resilientRows(
+    fetch: () async => (await _supabase
+            .from('orders')
+            .select()
+            .eq('status', 'ready')
+            .order('created_at', ascending: false) as List)
+        .cast<Map<String, dynamic>>(),
+    live: () => _supabase
+        .from('orders')
+        .stream(primaryKey: ['id'])
+        .eq('status', 'ready')
+        .order('created_at', ascending: false),
+  )) {
     // Only offer orders the restaurant has marked 'ready' (food cooked) and
     // that no driver has claimed yet. 'pending' was previously included, which
     // let a driver grab an order before the restaurant even accepted it.
@@ -112,11 +124,19 @@ final activeDeliveryProvider = StreamProvider<Order?>((ref) async* {
     return;
   }
 
-  yield* _supabase
-      .from('orders')
-      .stream(primaryKey: ['id'])
-      .order('created_at', ascending: false)
-      .map((rows) {
+  yield* resilientRows(
+    fetch: () async => (await _supabase
+            .from('orders')
+            .select()
+            .eq('driver_id', driverId)
+            .order('created_at', ascending: false) as List)
+        .cast<Map<String, dynamic>>(),
+    live: () => _supabase
+        .from('orders')
+        .stream(primaryKey: ['id'])
+        .eq('driver_id', driverId)
+        .order('created_at', ascending: false),
+  ).map((rows) {
         final active = rows.where((row) =>
             row['driver_id'] == driverId &&
             row['status'] != 'delivered' &&
@@ -136,7 +156,10 @@ final driverDeliveryHistoryProvider = FutureProvider<List<Order>>((ref) async {
 
   final rows = await _supabase
       .from('orders')
-      .select('*, restaurants(name)')
+      // Disambiguated FK: `restaurants` is a view over the generic `vendors`
+      // table, so orders reaches it by BOTH restaurant_id and supermarket_id.
+      // PostgREST refuses to guess and fails the query with PGRST201.
+      .select('*, restaurants!orders_restaurant_id_fkey(name)')
       .eq('driver_id', driverIdAsync)
       .eq('status', 'delivered')
       .order('created_at', ascending: false);

@@ -55,10 +55,9 @@ class _ScheduleNotifier extends StateNotifier<_ScheduleSettings> {
   Future<void> _init() async {
     final profile = await _ref.read(partnerProfileProvider.future);
     if (profile == null || !mounted) return;
-    final table = profile.partnerType == 'restaurant' ? 'restaurants' : 'supermarkets';
     try {
       final row = await Supabase.instance.client
-          .from(table)
+          .from('vendors')
           .select('auto_close_enabled, opening_time, closing_time')
           .eq('id', profile.entityId)
           .single();
@@ -82,8 +81,7 @@ class _ScheduleNotifier extends StateNotifier<_ScheduleSettings> {
       '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}:00';
 
   Future<void> _save(String entityId, String partnerType) async {
-    final table = partnerType == 'restaurant' ? 'restaurants' : 'supermarkets';
-    await Supabase.instance.client.from(table).update({
+    await Supabase.instance.client.from('vendors').update({
       'auto_close_enabled': state.autoCloseEnabled,
       'opening_time': state.openingTime != null ? _formatTime(state.openingTime!) : null,
       'closing_time': state.closingTime != null ? _formatTime(state.closingTime!) : null,
@@ -113,10 +111,9 @@ class _ShopOpenNotifier extends StateNotifier<bool?> {
   Future<void> _init() async {
     final profile = await _ref.read(partnerProfileProvider.future);
     if (profile == null) return;
-    final table = profile.partnerType == 'restaurant' ? 'restaurants' : 'supermarkets';
     try {
       final row = await Supabase.instance.client
-          .from(table).select('is_open').eq('id', profile.entityId).single();
+          .from('vendors').select('is_open').eq('id', profile.entityId).single();
       if (mounted) state = row['is_open'] as bool? ?? true;
     } catch (_) {}
   }
@@ -124,9 +121,8 @@ class _ShopOpenNotifier extends StateNotifier<bool?> {
   Future<void> toggle(String entityId, String partnerType) async {
     final next = !(state ?? true);
     state = next;
-    final table = partnerType == 'restaurant' ? 'restaurants' : 'supermarkets';
     await Supabase.instance.client
-        .from(table).update({'is_open': next}).eq('id', entityId);
+        .from('vendors').update({'is_open': next}).eq('id', entityId);
   }
 }
 

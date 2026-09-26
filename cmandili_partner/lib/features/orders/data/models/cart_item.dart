@@ -56,6 +56,23 @@ class CartItem {
       optionsSummary = _formatOptionGroups(options['optionGroups']);
     }
 
+    if (type == 'vendor') {
+        final vendor = json['vendorItem'] ?? {};
+        return CartItem(
+            id: vendor['id'] ?? '',
+            name: vendor['name'] ?? '',
+            price: (vendor['price'] ?? 0).toDouble(),
+            quantity: json['quantity'] ?? 1,
+            // _parseOrderItems stores the key as camelCase 'imageUrl'.
+            imageUrl: vendor['imageUrl'] as String? ?? '',
+            specialInstructions: json['specialInstructions'],
+            voiceNoteContent: voiceContent,
+            voiceNoteDurationSeconds: voiceDuration,
+            variantName: variantName,
+            optionsSummary: optionsSummary,
+        );
+    }
+
     if (type == 'grocery') {
         final grocery = json['groceryItem'] ?? {};
         return CartItem(

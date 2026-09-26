@@ -736,6 +736,18 @@ abstract class AppLocalizations {
   /// **'Add Product'**
   String get addProduct;
 
+  /// No description provided for @editDish.
+  ///
+  /// In en, this message translates to:
+  /// **'Edit Dish'**
+  String get editDish;
+
+  /// No description provided for @editProduct.
+  ///
+  /// In en, this message translates to:
+  /// **'Edit Product'**
+  String get editProduct;
+
   /// No description provided for @happyHourBadge.
   ///
   /// In en, this message translates to:

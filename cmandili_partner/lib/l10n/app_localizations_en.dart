@@ -334,6 +334,12 @@ class AppLocalizationsEn extends AppLocalizations {
   String get addProduct => 'Add Product';
 
   @override
+  String get editDish => 'Edit Dish';
+
+  @override
+  String get editProduct => 'Edit Product';
+
+  @override
   String get happyHourBadge => 'HH';
 
   @override

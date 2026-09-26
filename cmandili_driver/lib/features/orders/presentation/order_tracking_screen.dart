@@ -10,7 +10,9 @@ import 'package:cmandili_driver/l10n/app_localizations.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/utils/currency_formatter.dart';
 import '../../../core/services/background_location_service.dart';
+import '../../../core/services/route_service.dart';
 import '../../../core/widgets/app_map.dart';
+import '../../../core/widgets/customer_contact.dart';
 import '../data/models/order.dart';
 import '../providers/order_provider.dart';
 import '../providers/driver_orders_provider.dart';
@@ -49,7 +51,30 @@ class _OrderTrackingScreenState extends ConsumerState<OrderTrackingScreen> {
   double? _pickupLng;
   String? _pickupName;
   String? _pickupFetchedForOrderId;
-  bool _boundsFitted = false;
+  /// The leg the camera is currently framed on. Null until the first fit.
+  /// Compared against the live destination so the map reframes the moment
+  /// the driver collects the order and the target becomes the customer.
+  ({double lat, double lng})? _fittedForLeg;
+
+  /// The street-following route currently drawn, from the driver to whichever
+  /// leg they are on (pickup first, then the drop-off). Carries the ETA,
+  /// remaining distance and the road names to follow.
+  AppRoute? _route;
+  /// Destination the drawn route was computed for. When the driver collects
+  /// the order the destination flips from pickup to delivery, which makes the
+  /// old line wrong outright rather than merely stale.
+  ({double lat, double lng})? _lastRouteDestination;
+  bool _routeFetchInFlight = false;
+  DateTime? _lastRouteFetchAt;
+
+  /// True once the navigation-grade stream has delivered a fix; from then on
+  /// the one-shot seed in [_seedInitialPosition] must not overwrite it.
+  bool _gotStreamFix = false;
+
+  /// Route the camera was last fitted to, so a freshly fetched route is framed
+  /// once (like the client app) instead of on every GPS tick.
+  AppRoute? _fittedRoute;
+  ({double lat, double lng})? _lastFittedDestination;
 
   @override
   void initState() {
@@ -58,6 +83,45 @@ class _OrderTrackingScreenState extends ConsumerState<OrderTrackingScreen> {
     // This prevents the race condition where early GPS updates are discarded
     // because _activeDeliveryId is still null.
     _subscribeToDelivery().then((_) => _startLocationTracking());
+    // Independent of the delivery lookup above: the map, pins and route only
+    // need *a* fix, and the continuous stream can take many seconds (or never
+    // fire indoors) before its first navigation-grade reading. Without this
+    // the screen sat with no driver pin and no route at all.
+    _seedInitialPosition();
+  }
+
+  /// Gets a first position fast — last known, then a one-shot current fix —
+  /// so the route is fetched immediately instead of waiting on the stream.
+  Future<void> _seedInitialPosition() async {
+    try {
+      var permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+      }
+      if (permission == LocationPermission.denied ||
+          permission == LocationPermission.deniedForever) {
+        return;
+      }
+      final last = await Geolocator.getLastKnownPosition();
+      if (last != null) _applyPosition(last.latitude, last.longitude);
+      final current = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high,
+        timeLimit: const Duration(seconds: 15),
+      );
+      _applyPosition(current.latitude, current.longitude);
+    } catch (e) {
+      debugPrint('Initial position failed: $e');
+    }
+  }
+
+  /// Seeds the driver position only if the live stream has not already
+  /// provided a (better) one.
+  void _applyPosition(double lat, double lng) {
+    if (!mounted || _gotStreamFix) return;
+    setState(() {
+      _myLat = lat;
+      _myLng = lng;
+    });
   }
 
   /// Resolves the restaurant/supermarket's lat/lng + name once per order, so
@@ -67,32 +131,27 @@ class _OrderTrackingScreenState extends ConsumerState<OrderTrackingScreen> {
   Future<void> _fetchPickupLocation(Order order) async {
     if (_pickupFetchedForOrderId == order.id) return;
     _pickupFetchedForOrderId = order.id;
+    // Both ids point at the same `vendors` table, so one lookup covers every
+    // category. Querying the legacy restaurants/supermarkets views instead
+    // would silently return nothing for a florist, pet shop or bakery order
+    // — those views filter on their own category — and the driver would get
+    // no pickup pin at all.
+    final vendorId = order.restaurantId.isNotEmpty
+        ? order.restaurantId
+        : order.supermarketId;
+    if (vendorId.isEmpty) return;
     try {
-      if (order.restaurantId.isNotEmpty) {
-        final r = await _supabase
-            .from('restaurants')
-            .select('name, latitude, longitude')
-            .eq('id', order.restaurantId)
-            .maybeSingle();
-        if (r == null || !mounted) return;
-        setState(() {
-          _pickupLat = (r['latitude'] as num?)?.toDouble();
-          _pickupLng = (r['longitude'] as num?)?.toDouble();
-          _pickupName = r['name'] as String?;
-        });
-      } else if (order.supermarketId.isNotEmpty) {
-        final s = await _supabase
-            .from('supermarkets')
-            .select('name, latitude, longitude')
-            .eq('id', order.supermarketId)
-            .maybeSingle();
-        if (s == null || !mounted) return;
-        setState(() {
-          _pickupLat = (s['latitude'] as num?)?.toDouble();
-          _pickupLng = (s['longitude'] as num?)?.toDouble();
-          _pickupName = s['name'] as String?;
-        });
-      }
+      final row = await _supabase
+          .from('vendors')
+          .select('name, latitude, longitude')
+          .eq('id', vendorId)
+          .maybeSingle();
+      if (row == null || !mounted) return;
+      setState(() {
+        _pickupLat = (row['latitude'] as num?)?.toDouble();
+        _pickupLng = (row['longitude'] as num?)?.toDouble();
+        _pickupName = row['name'] as String?;
+      });
     } catch (e) {
       debugPrint('Failed to fetch pickup location: $e');
     }
@@ -103,12 +162,23 @@ class _OrderTrackingScreenState extends ConsumerState<OrderTrackingScreen> {
     if (permission == LocationPermission.denied) {
       permission = await Geolocator.requestPermission();
     }
-    if (permission == LocationPermission.deniedForever) return;
+    if (permission == LocationPermission.denied ||
+        permission == LocationPermission.deniedForever) {
+      return;
+    }
 
     _positionStream = Geolocator.getPositionStream(
+      // bestForNavigation while a delivery is on screen: `high` is a
+      // city-block-grade fix, which is what made the pin sit on the wrong
+      // side of the street and the customer's ETA jump around. Navigation
+      // accuracy keeps the GPS chip in continuous mode, so the position the
+      // customer watches is the driver's real one.
+      //
+      // The 5 m filter matters as much as the accuracy: at 10 m the marker
+      // only moved after the driver had already passed the turn.
       locationSettings: const LocationSettings(
-        accuracy: LocationAccuracy.high,
-        distanceFilter: 10,
+        accuracy: LocationAccuracy.bestForNavigation,
+        distanceFilter: 5,
       ),
     ).listen((pos) async {
       if (!mounted) return;
@@ -126,12 +196,15 @@ class _OrderTrackingScreenState extends ConsumerState<OrderTrackingScreen> {
           (lat: pos.latitude, lng: pos.longitude),
         );
       }
+      _gotStreamFix = true;
       setState(() {
         _myLat = pos.latitude;
         _myLng = pos.longitude;
         _myBearing = bearing ?? _myBearing;
       });
-      _mapController.animateToPoint(pos.latitude, pos.longitude);
+      // No per-tick camera recenter: it zoomed back onto the driver on every
+      // fix and hid the route. The camera is framed on the route when one
+      // arrives (see _fetchRoute) and the recenter button is always there.
 
       // Update driver record
       try {
@@ -186,6 +259,38 @@ class _OrderTrackingScreenState extends ConsumerState<OrderTrackingScreen> {
           if (!mounted || rows.isEmpty) return;
           _activeDeliveryId ??= rows.first['id'] as String?;
         });
+  }
+
+  /// Fetches the street-following route for the leg the driver is currently
+  /// on and redraws it. Called from build() whenever the line has gone stale
+  /// — see the caller for the off-route rule that decides that.
+  Future<void> _fetchRoute({
+    required ({double lat, double lng}) origin,
+    required ({double lat, double lng}) destination,
+  }) async {
+    if (_routeFetchInFlight) return;
+    _routeFetchInFlight = true;
+    _lastRouteDestination = destination;
+    _lastRouteFetchAt = DateTime.now();
+    try {
+      final route = await RouteService.fetchDrivingRoute(
+        origin: origin,
+        destination: destination,
+      );
+      if (route == null || !mounted) return;
+      setState(() => _route = route);
+      // Frame the whole route once per new leg, the way the client app does,
+      // so the driver sees the full line to the destination.
+      if (_fittedRoute == null || destination != _lastFittedDestination) {
+        _fittedRoute = route;
+        _lastFittedDestination = destination;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          _mapController.fitBounds(route.points);
+        });
+      }
+    } finally {
+      _routeFetchInFlight = false;
+    }
   }
 
   @override
@@ -289,6 +394,172 @@ class _OrderTrackingScreenState extends ConsumerState<OrderTrackingScreen> {
     }
   }
 
+  static const _releaseReasons = [
+    'Panne / accident',
+    'Problème de véhicule',
+    'Urgence personnelle',
+    'Trop loin / je ne peux pas livrer',
+    'Autre',
+  ];
+
+  /// Hand the order back so another driver can take it.
+  ///
+  /// This is deliberately NOT a cancellation: the customer still wants their
+  /// order, so it returns to the pool rather than dying. A driver who breaks
+  /// down mid-delivery must be able to let go without the order being lost.
+  ///
+  /// Two cases, and the difference matters for money:
+  ///  * **Before pickup** — the goods are still at the shop. Clearing
+  ///    `driver_id` puts the order back in the available list and the next
+  ///    driver collects from the shop as normal. Nothing is owed.
+  ///  * **After pickup** — the goods are with *this* driver. The order still
+  ///    returns to the pool (status rolls back so the next driver sees a
+  ///    collectable job), but the first driver already burned fuel and time,
+  ///    so a `driver_relay` settlement is recorded for the admin to credit to
+  ///    his wallet. The customer is never charged twice — the relay is paid
+  ///    by the platform, not re-billed.
+  ///
+  /// The driver's id is appended to `passed_driver_ids` either way, so the
+  /// dispatcher does not immediately offer the same order straight back to
+  /// the driver who just gave it up.
+  Future<void> _releaseOrder(Order order) async {
+    final afterPickup = order.status == OrderStatus.pickedUp ||
+        order.status == OrderStatus.onTheWay;
+
+    final reason = await showModalBottomSheet<String>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(
+                  width: 40, height: 4,
+                  decoration: BoxDecoration(
+                      color: Colors.grey.withValues(alpha: 0.4),
+                      borderRadius: BorderRadius.circular(2)),
+                ),
+              ),
+              const SizedBox(height: 16),
+              const Text('Je ne peux pas livrer',
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 4),
+              Text(
+                afterPickup
+                    ? 'La commande sera proposée à un autre livreur. '
+                      'Vous serez payé pour le trajet déjà effectué — '
+                      'le montant sera crédité sur votre solde par l\'admin.'
+                    : 'La commande retournera à la liste des livraisons '
+                      'disponibles. Aucune pénalité.',
+                style: const TextStyle(fontSize: 13, color: Colors.black54, height: 1.4),
+              ),
+              const SizedBox(height: 16),
+              ..._releaseReasons.map((r) => ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: Text(r,
+                        style: const TextStyle(fontWeight: FontWeight.w500)),
+                    trailing: const Icon(Icons.chevron_right, size: 20),
+                    onTap: () => Navigator.pop(ctx, r),
+                  )),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    if (reason == null || !mounted) return;
+
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      final driverId = await ref.read(currentDriverIdProvider.future);
+
+      // Re-read the passed list so we append rather than clobber the drivers
+      // who already declined this order.
+      final row = await _supabase
+          .from('orders')
+          .select('passed_driver_ids')
+          .eq('id', widget.orderId)
+          .single();
+      final passed = <String>{
+        ...((row['passed_driver_ids'] as List?)?.cast<String>() ?? const []),
+        if (driverId != null) driverId,
+      }.toList();
+
+      // Roll the order back to a collectable state and release the claim.
+      // Guarded on driver_id so a stale screen cannot yank an order that has
+      // already been reassigned to somebody else.
+      final released = await _supabase
+          .from('orders')
+          .update({
+            'driver_id': null,
+            'assigned_driver_id': null,
+            'status': 'ready',
+            'passed_driver_ids': passed,
+          })
+          .eq('id', widget.orderId)
+          .eq('driver_id', driverId as Object)
+          .select('id');
+
+      if ((released as List).isEmpty) {
+        messenger.showSnackBar(const SnackBar(
+          content: Text('Cette commande ne vous est plus assignée.'),
+          backgroundColor: Colors.orange,
+        ));
+        return;
+      }
+
+      // Close out this driver's delivery row so it stops tracking.
+      if (_activeDeliveryId != null) {
+        await _supabase
+            .from('deliveries')
+            .update({'status': 'cancelled'}).eq('id', _activeDeliveryId!);
+      }
+
+      // Owed for work already done: the admin settles this to the wallet.
+      // Left `pending` on purpose — it is a claim for review, not a payment
+      // the driver can grant himself.
+      if (afterPickup && driverId != null) {
+        final userId = _supabase.auth.currentUser?.id;
+        if (userId != null) {
+          await _supabase.from('settlements').insert({
+            'user_id': userId,
+            'entity_type': 'driver',
+            'amount': order.deliveryFee,
+            'type': 'driver_relay',
+            'status': 'pending',
+            'description':
+                'Trajet partiel #${widget.orderId.substring(0, 8).toUpperCase()} — $reason',
+            'related_order_id': widget.orderId,
+          });
+        }
+      }
+
+      await BackgroundLocationService.stopTracking();
+
+      if (!mounted) return;
+      messenger.showSnackBar(SnackBar(
+        content: Text(afterPickup
+            ? 'Commande relayée. Votre trajet sera crédité par l\'admin.'
+            : 'Commande remise en liste.'),
+        backgroundColor: Colors.orange,
+      ));
+      Navigator.of(context).popUntil((r) => r.isFirst);
+    } catch (e) {
+      if (!mounted) return;
+      messenger.showSnackBar(SnackBar(
+        content: Text('Échec : $e'),
+        backgroundColor: Colors.red,
+      ));
+    }
+  }
+
   Future<void> _startDelivery() async {
     await _supabase
         .from('orders')
@@ -360,6 +631,17 @@ class _OrderTrackingScreenState extends ConsumerState<OrderTrackingScreen> {
     );
   }
 
+  /// The number to reach the customer on. Courier and facture orders carry
+  /// the sender's own number; standard orders carry the account holder's.
+  /// Falling back between them means the button is never missing just
+  /// because one field happens to be empty for that order type.
+  String? _customerPhone(Order order) {
+    for (final p in [order.customerPhone, order.senderPhone, order.recipientPhone]) {
+      if (p != null && p.trim().isNotEmpty) return p.trim();
+    }
+    return null;
+  }
+
   bool _isFacture(Order order) =>
       order.type == OrderType.facture || order.type == OrderType.billPayment;
 
@@ -389,12 +671,52 @@ class _OrderTrackingScreenState extends ConsumerState<OrderTrackingScreen> {
     // paint with a real driver fix, so the driver immediately sees both the
     // restaurant/client positions relative to themself instead of a map
     // centered arbitrarily. Mirrors the client app's own tracking screen.
-    if (hasLocation && !_boundsFitted) {
-      _boundsFitted = true;
+    // Which leg is the driver on? Before collection the route runs to the
+    // pickup point; once the order is picked up / on the way it runs to the
+    // customer. Routing to the wrong leg would send them across town.
+    final beforePickup = order.status != OrderStatus.pickedUp &&
+        order.status != OrderStatus.onTheWay;
+    final routeDestination = (beforePickup && hasPickup)
+        ? (lat: pickupLat, lng: pickupLng)
+        : (lat: deliveryLat, lng: deliveryLng);
+
+    // Re-route on deviation rather than on distance covered: a driver
+    // following the drawn line stays within GPS noise of it however far they
+    // drive, while one who takes a different street is off it within a block
+    // and gets a fresh line (and fresh street names) straight away.
+    if (hasLocation) {
+      final destinationChanged = _lastRouteDestination != routeDestination;
+      final wentAnotherWay = RouteFreshness.isOffRoute(
+        _route?.points,
+        (lat: _myLat!, lng: _myLng!),
+      );
+      final rateLimitPassed = _lastRouteFetchAt == null ||
+          DateTime.now().difference(_lastRouteFetchAt!) >
+              RouteFreshness.kMinRefetchInterval;
+      if (!_routeFetchInFlight &&
+          (destinationChanged || (wentAnotherWay && rateLimitPassed))) {
+        _fetchRoute(
+          origin: (lat: _myLat!, lng: _myLng!),
+          destination: routeDestination,
+        );
+      }
+    }
+
+    // Frame only the leg being driven, and reframe when the leg changes.
+    //
+    // Two problems with fitting all three points once: the driver heading to
+    // the restaurant had the customer's address in frame too, which zooms the
+    // map out far enough that the street they actually need is unreadable;
+    // and because it ran once ever, collecting the order left the camera
+    // still framed on the restaurant they had just left.
+    //
+    // Keying the guard on the destination makes it re-fit exactly when the
+    // leg flips from pickup to drop-off, and not on every GPS tick.
+    if (hasLocation && _fittedForLeg != routeDestination) {
+      _fittedForLeg = routeDestination;
       final points = <({double lat, double lng})>[
         (lat: _myLat!, lng: _myLng!),
-        (lat: deliveryLat, lng: deliveryLng),
-        if (hasPickup) (lat: pickupLat, lng: pickupLng),
+        routeDestination,
       ];
       WidgetsBinding.instance.addPostFrameCallback((_) {
         _mapController.fitBounds(points);
@@ -412,7 +734,17 @@ class _OrderTrackingScreenState extends ConsumerState<OrderTrackingScreen> {
             initialLatitude: hasLocation ? _myLat! : deliveryLat,
             initialLongitude: hasLocation ? _myLng! : deliveryLng,
             initialZoom: 14,
-            showUserLocationPuck: true,
+            // The amber driver badge already marks "you"; Google's blue dot on
+            // top of it looked like a second, different position.
+            showUserLocationPuck: false,
+            polyline: _route?.points,
+            // The details sheet covers the lower ~40% of the screen; telling
+            // the map about it keeps Google's own controls (including the
+            // my-location button) clear of the sheet and centres fitted
+            // routes in the part still visible.
+            contentPadding: EdgeInsets.only(
+              bottom: MediaQuery.of(context).size.height * 0.4,
+            ),
             markers: {
               AppMapMarker(
                 id: 'delivery',
@@ -454,10 +786,13 @@ class _OrderTrackingScreenState extends ConsumerState<OrderTrackingScreen> {
                 shadowColor: Colors.black.withValues(alpha: 0.2),
                 child: InkWell(
                   customBorder: const CircleBorder(),
+                  // Recenter on the CURRENT leg, matching what the auto-fit
+                  // frames. Including the other end would zoom back out to
+                  // the whole journey, which is what the driver pressed this
+                  // button to get away from.
                   onTap: () => _mapController.fitBounds([
                     (lat: _myLat!, lng: _myLng!),
-                    (lat: deliveryLat, lng: deliveryLng),
-                    if (hasPickup) (lat: pickupLat, lng: pickupLng),
+                    routeDestination,
                   ]),
                   child: const Padding(
                     padding: EdgeInsets.all(12),
@@ -467,25 +802,40 @@ class _OrderTrackingScreenState extends ConsumerState<OrderTrackingScreen> {
               ),
             ),
 
-          // Top back button
+          // Top back button, with the live navigation banner beside it so the
+          // road to take and the ETA are readable without opening the sheet.
           SafeArea(
             child: Padding(
               padding: const EdgeInsets.all(16),
-              child: Container(
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  shape: BoxShape.circle,
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withValues(alpha:0.1),
-                      blurRadius: 8,
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      shape: BoxShape.circle,
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.1),
+                          blurRadius: 8,
+                        ),
+                      ],
+                    ),
+                    child: IconButton(
+                      icon: const Icon(Icons.arrow_back),
+                      onPressed: () => Navigator.pop(context),
+                    ),
+                  ),
+                  if (_route != null) ...[
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: _NavBanner(
+                        route: _route!,
+                        toPickup: beforePickup && hasPickup,
+                      ),
                     ),
                   ],
-                ),
-                child: IconButton(
-                  icon: const Icon(Icons.arrow_back),
-                  onPressed: () => Navigator.pop(context),
-                ),
+                ],
               ),
             ),
           ),
@@ -545,6 +895,26 @@ class _OrderTrackingScreenState extends ConsumerState<OrderTrackingScreen> {
                           : order.deliveryAddress.label,
                     ),
                     const SizedBox(height: 12),
+
+                    // ── Customer contact ───────────────────────────────────
+                    // Always visible while a delivery is live: a driver at a
+                    // closed gate or a wrong building needs to reach the
+                    // customer immediately, and hunting for the number in
+                    // another screen costs minutes. WhatsApp sits beside the
+                    // call button because it works when the customer has no
+                    // credit or is on data only.
+                    if (_customerPhone(order) != null) ...[
+                      CustomerContact(
+                        phone: _customerPhone(order)!,
+                        label: order.customerName?.isNotEmpty == true
+                            ? 'Client — ${order.customerName}'
+                            : 'Client',
+                        whatsappMessage:
+                            'Bonjour, je suis votre livreur Amana pour la '
+                            'commande #${order.id.substring(0, 6).toUpperCase()}.',
+                      ),
+                      const SizedBox(height: 12),
+                    ],
 
                     // Payment info row
                     Row(
@@ -642,6 +1012,30 @@ class _OrderTrackingScreenState extends ConsumerState<OrderTrackingScreen> {
                       ),
                     ],
 
+                    // Escape hatch for a driver who cannot finish: breakdown,
+                    // accident, emergency. Available right up to delivery,
+                    // because that is exactly when things go wrong.
+                    if (order.status != OrderStatus.delivered &&
+                        order.status != OrderStatus.cancelled) ...[
+                      const SizedBox(height: 12),
+                      SizedBox(
+                        width: double.infinity,
+                        height: 48,
+                        child: OutlinedButton.icon(
+                          onPressed: () => _releaseOrder(order),
+                          icon: const Icon(Icons.report_problem_outlined, size: 20),
+                          label: const Text('Je ne peux pas livrer',
+                              style: TextStyle(fontWeight: FontWeight.w600)),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: Colors.orange.shade800,
+                            side: BorderSide(color: Colors.orange.shade300),
+                            shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12)),
+                          ),
+                        ),
+                      ),
+                    ],
+
                     if (order.status == OrderStatus.delivered)
                       Container(
                         padding: const EdgeInsets.all(16),
@@ -676,6 +1070,74 @@ class _OrderTrackingScreenState extends ConsumerState<OrderTrackingScreen> {
 // ── Helper sub-widgets ────────────────────────────────────────────────────────
 
 /// Orange-bordered info card showing a labelled address with an icon.
+/// Compact navigation banner pinned to the top of the driver's map: the road
+/// to take next, plus the traffic-aware ETA and remaining distance for the
+/// leg they are on. Redrawn whenever the route is re-fetched, so taking a
+/// different street updates this immediately.
+class _NavBanner extends StatelessWidget {
+  final AppRoute route;
+
+  /// True while the driver is still heading to the collection point, which
+  /// changes what the banner says they are driving towards.
+  final bool toPickup;
+
+  const _NavBanner({required this.route, required this.toPickup});
+
+  @override
+  Widget build(BuildContext context) {
+    final street = route.currentStreet;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.12),
+            blurRadius: 10,
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
+            children: [
+              Icon(
+                toPickup ? Icons.storefront_rounded : Icons.home_rounded,
+                size: 16,
+                color: AppColors.primary,
+              ),
+              const SizedBox(width: 6),
+              Text(
+                '${route.etaLabel} • ${route.distanceLabel}',
+                style: const TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 14,
+                  color: AppColors.primary,
+                ),
+              ),
+            ],
+          ),
+          if (street != null) ...[
+            const SizedBox(height: 2),
+            Text(
+              street,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                fontSize: 12.5,
+                color: AppColors.textSecondary,
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
 class _AddressCard extends StatelessWidget {
   final IconData icon;
   final Color iconColor;

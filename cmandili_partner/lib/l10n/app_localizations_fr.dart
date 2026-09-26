@@ -337,6 +337,12 @@ class AppLocalizationsFr extends AppLocalizations {
   String get addProduct => 'Ajouter un produit';
 
   @override
+  String get editDish => 'Modifier le plat';
+
+  @override
+  String get editProduct => 'Modifier le produit';
+
+  @override
   String get happyHourBadge => 'HH';
 
   @override

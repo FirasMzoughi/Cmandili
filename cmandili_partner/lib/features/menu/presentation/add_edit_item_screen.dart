@@ -11,16 +11,23 @@ import '../data/models/food_item.dart';
 import '../data/models/grocery_item.dart';
 import '../data/models/grocery_category.dart';
 import '../data/models/item_variant.dart';
+import '../data/models/vendor_item.dart';
+import '../../auth/data/models/partner_model.dart';
 
 class AddEditItemScreen extends ConsumerStatefulWidget {
   final FoodItem? existingFoodItem;
   final GroceryItem? existingGroceryItem;
+
+  /// Set for the generic categories (bakery, flowers, pets, gifts,
+  /// electronics), whose catalogue lives in `vendor_items`.
+  final VendorItem? existingVendorItem;
   final String partnerType;
 
   const AddEditItemScreen({
     super.key,
     this.existingFoodItem,
     this.existingGroceryItem,
+    this.existingVendorItem,
     required this.partnerType,
   });
 
@@ -62,29 +69,39 @@ class _AddEditItemScreenState extends ConsumerState<AddEditItemScreen> {
   final List<_VariantDraft> _variants = [];
 
   bool get _isRestaurant => widget.partnerType == 'restaurant';
+
+  /// Generic vendor categories. They share the restaurant's free-text category
+  /// field but none of its food-specific extras, and they have no variants or
+  /// happy-hour tables behind them.
+  bool get _isVendor => isGenericVendorType(widget.partnerType);
   bool get _isEditing =>
-      widget.existingFoodItem != null || widget.existingGroceryItem != null;
+      widget.existingFoodItem != null ||
+      widget.existingGroceryItem != null ||
+      widget.existingVendorItem != null;
 
   @override
   void initState() {
     super.initState();
     final fi = widget.existingFoodItem;
     final gi = widget.existingGroceryItem;
+    final vi = widget.existingVendorItem;
 
-    _nameController = TextEditingController(text: fi?.name ?? gi?.name ?? '');
-    _descController =
-        TextEditingController(text: fi?.description ?? gi?.description ?? '');
+    _nameController =
+        TextEditingController(text: fi?.name ?? gi?.name ?? vi?.name ?? '');
+    _descController = TextEditingController(
+        text: fi?.description ?? gi?.description ?? vi?.description ?? '');
     _priceController = TextEditingController(
-        text: (fi?.price ?? gi?.price)?.toStringAsFixed(2) ?? '');
+        text: (fi?.price ?? gi?.price ?? vi?.price)?.toStringAsFixed(2) ?? '');
     _categoryController =
-        TextEditingController(text: fi?.category ?? '');
-    _imageUrlController =
-        TextEditingController(text: fi?.imageUrl ?? gi?.imageUrl ?? '');
+        TextEditingController(text: fi?.category ?? vi?.category ?? '');
+    _imageUrlController = TextEditingController(
+        text: fi?.imageUrl ?? gi?.imageUrl ?? vi?.imageUrl ?? '');
     _prepTimeController = TextEditingController(
         text: fi?.preparationTime.toString() ?? '15');
-    _unitController = TextEditingController(text: gi?.unit ?? 'piece');
+    _unitController =
+        TextEditingController(text: gi?.unit ?? vi?.unit ?? 'piece');
 
-    _isAvailable = fi?.isAvailable ?? gi?.isAvailable ?? true;
+    _isAvailable = fi?.isAvailable ?? gi?.isAvailable ?? vi?.isAvailable ?? true;
     _isVegetarian = fi?.isVegetarian ?? false;
     _isSpicy = fi?.isSpicy ?? false;
     _isOrganic = gi?.isOrganic ?? false;
@@ -109,7 +126,8 @@ class _AddEditItemScreenState extends ConsumerState<AddEditItemScreen> {
 
     if (gi != null) _selectedGroceryCategory = gi.category;
 
-    if (_isEditing) _loadVariants();
+    // vendor_items has no variants table behind it.
+    if (_isEditing && !_isVendor) _loadVariants();
   }
 
   Future<void> _loadVariants() async {
@@ -195,14 +213,29 @@ class _AddEditItemScreenState extends ConsumerState<AddEditItemScreen> {
     final profile = await ref.read(partnerProfileProvider.future);
     bool ok = false;
     
-    // Upload Image if selected
+    // Upload Image if selected.
+    //
+    // A failed upload used to fall through with the OLD url still in the
+    // controller, so the item saved "successfully" with its previous picture
+    // and the partner had no way to know the new one never left the phone.
     if (_imageFile != null) {
       final ext = _imageFile!.path.split('.').last;
       String path = '${const Uuid().v4()}.$ext';
       final url = await repo.uploadItemImage(path, _imageFile!);
-      if (url != null) {
-        _imageUrlController.text = url;
+      if (url == null) {
+        if (!mounted) return;
+        setState(() => _isLoading = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text("Impossible d'envoyer l'image. Vérifiez votre connexion et réessayez.",
+                style: TextStyle(color: Colors.white)),
+            backgroundColor: AppColors.error,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+        return;
       }
+      _imageUrlController.text = url;
     }
 
     String formatTime(TimeOfDay? time) {
@@ -237,6 +270,44 @@ class _AddEditItemScreenState extends ConsumerState<AddEditItemScreen> {
         ok = id != null;
         savedItemId = id;
       }
+    } else if (_isVendor) {
+      // Straight at `vendor_items`. The grocery branch below writes through a
+      // supermarket-filtered view, so a florist saving there produced a row its
+      // own catalogue query immediately filtered out.
+      final vendorId = profile?.entityId ?? '';
+      final name = _nameController.text.trim();
+      final price = double.parse(_priceController.text);
+      final description = _descController.text.trim();
+      final imageUrl = _imageUrlController.text.trim();
+      final category = _categoryController.text.trim();
+      final unit = _unitController.text.trim();
+
+      if (_isEditing) {
+        final id = widget.existingVendorItem!.id;
+        ok = await repo.updateVendorItem(id, {
+          'name': name,
+          'description': description,
+          'image_url': imageUrl,
+          'price': price,
+          'category': category,
+          'unit': unit.isEmpty ? null : unit,
+          'is_available': _isAvailable,
+        });
+        savedItemId = id;
+      } else {
+        final id = await repo.addVendorItem(
+          vendorId: vendorId,
+          name: name,
+          price: price,
+          description: description,
+          imageUrl: imageUrl,
+          category: category.isEmpty ? null : category,
+          unit: unit.isEmpty ? null : unit,
+          isAvailable: _isAvailable,
+        );
+        ok = id != null;
+        savedItemId = id;
+      }
     } else {
       final item = GroceryItem(
         id: widget.existingGroceryItem?.id ?? const Uuid().v4(),
@@ -262,7 +333,7 @@ class _AddEditItemScreenState extends ConsumerState<AddEditItemScreen> {
 
     // After the item itself is saved, replace its variant list. Skips when
     // the item save failed — variants without an item are orphans.
-    if (ok && savedItemId != null) {
+    if (ok && savedItemId != null && !_isVendor) {
       final cleaned = <ItemVariant>[];
       for (var i = 0; i < _variants.length; i++) {
         final d = _variants[i];
@@ -316,9 +387,13 @@ class _AddEditItemScreenState extends ConsumerState<AddEditItemScreen> {
     final l = AppLocalizations.of(context)!;
     return Scaffold(
       appBar: AppBar(
+        // No 'Add '/'Edit ' prefix: the localized strings already carry the
+        // verb, so prefixing produced "Add Add Dish" / "Edit Ajouter un
+        // produit". A prefix also cannot work across locales -- Arabic and
+        // French put the verb in a different place than English.
         title: Text(_isEditing
-            ? 'Edit ${_isRestaurant ? l.addDish : l.addProduct}'
-            : 'Add ${_isRestaurant ? l.addDish : l.addProduct}'),
+            ? (_isRestaurant ? l.editDish : l.editProduct)
+            : (_isRestaurant ? l.addDish : l.addProduct)),
         backgroundColor: Colors.transparent,
         foregroundColor: AppColors.textPrimary,
         elevation: 0,
@@ -373,11 +448,13 @@ class _AddEditItemScreenState extends ConsumerState<AddEditItemScreen> {
 
             _sectionLabel('Category'),
             const SizedBox(height: 10),
-            if (_isRestaurant)
+            if (_isRestaurant || _isVendor)
               _buildCategorySelector()
             else
               _groceryCategoryDropdown(),
 
+            // Variants and happy hour have no tables behind vendor_items.
+            if (!_isVendor) ...[
             const SizedBox(height: 24),
             _sectionLabel('Variants (optional)'),
             const SizedBox(height: 6),
@@ -404,6 +481,7 @@ class _AddEditItemScreenState extends ConsumerState<AddEditItemScreen> {
             ),
             const SizedBox(height: 24),
             _buildHappyHourSection(),
+            ],
             const SizedBox(height: 24),
             _sectionLabel(_isRestaurant ? 'Dish Details' : 'Product Details'),
             const SizedBox(height: 10),
@@ -435,7 +513,7 @@ class _AddEditItemScreenState extends ConsumerState<AddEditItemScreen> {
                   (v) => setState(() => _isSpicy = v)),
             ],
 
-            if (!_isRestaurant) ...[
+            if (!_isRestaurant && !_isVendor) ...[
               const Divider(height: 1),
               _switchTile('Organic', 'Mark as organic product',
                   Icons.eco_outlined, _isOrganic,

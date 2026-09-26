@@ -105,6 +105,8 @@
     "couldNotLoadItems": "Could not load items.\nCheck your connection.",
     "addDish": "Add Dish",
     "addProduct": "Add Product",
+    "editDish": "Edit Dish",
+    "editProduct": "Edit Product",
     "happyHourBadge": "HH",
     "edit": "Edit",
     "deleteAction": "Delete",

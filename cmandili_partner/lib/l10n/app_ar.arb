@@ -105,6 +105,8 @@
     "couldNotLoadItems": "تعذر تحميل العناصر.\nتحقق من اتصالك.",
     "addDish": "إضافة طبق",
     "addProduct": "إضافة منتج",
+    "editDish": "تعديل الطبق",
+    "editProduct": "تعديل المنتج",
     "happyHourBadge": "س.س",
     "edit": "تعديل",
     "deleteAction": "حذف",

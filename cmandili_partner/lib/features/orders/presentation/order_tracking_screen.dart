@@ -5,7 +5,9 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:cmandili_partner/l10n/app_localizations.dart';
 import '../../../core/theme/app_colors.dart';
+import '../../../core/widgets/customer_contact.dart';
 import '../../../core/utils/currency_formatter.dart';
+import '../../../core/services/route_service.dart';
 import '../../../core/widgets/app_map.dart';
 import '../data/models/order.dart';
 import '../providers/order_provider.dart';
@@ -39,6 +41,25 @@ class _OrderTrackingScreenState extends ConsumerState<OrderTrackingScreen> {
   double? _liveDriverLng;
   String? _subscribedOrderId;
 
+  /// Heading of the driver marker, derived from the last two GPS fixes so the
+  /// badge points the way they are actually travelling instead of always
+  /// facing north. Null until a second, distinct fix arrives.
+  double? _driverBearing;
+
+  /// The camera is framed on driver + pickup + delivery exactly once, on the
+  /// first frame with a real driver fix. After that the partner owns the
+  /// camera — silently yanking it back on every GPS tick would make the map
+  /// impossible to pan.
+  bool _boundsFitted = false;
+
+  /// Street-following route from the courier to the customer, redrawn
+  /// whenever they deviate — so the partner sees the way the driver is
+  /// actually going, with its live ETA.
+  AppRoute? _route;
+  ({double lat, double lng})? _lastRouteDestination;
+  bool _routeFetchInFlight = false;
+  DateTime? _lastRouteFetchAt;
+
   // This partner's own restaurant/supermarket position — resolved once (it
   // never changes between orders, it's always the same logged-in partner)
   // so the map can show the pickup point the driver is coming from. Without
@@ -60,7 +81,10 @@ class _OrderTrackingScreenState extends ConsumerState<OrderTrackingScreen> {
     try {
       final profile = await ref.read(partnerProfileProvider.future);
       if (profile == null || profile.entityId.isEmpty) return;
-      final table = profile.partnerType == 'restaurant' ? 'restaurants' : 'supermarkets';
+      // Always `vendors`: entityId IS vendors.id and the other two are only
+      // views over it, so picking a view by partner type looked a florist's
+      // shop up in `supermarkets` and found nothing.
+      const table = 'vendors';
       final row = await _supabase
           .from(table)
           .select('latitude, longitude')
@@ -89,11 +113,53 @@ class _OrderTrackingScreenState extends ConsumerState<OrderTrackingScreen> {
           final lat = (rows.first['current_lat'] as num?)?.toDouble();
           final lng = (rows.first['current_lng'] as num?)?.toDouble();
           if (!_isValidCoord(lat, lng)) return;
+          // _isValidCoord already rejected nulls; the locals re-state that for
+          // flow analysis, which cannot see through the helper.
+          final nextLat = lat!;
+          final nextLng = lng!;
+          // Derive heading from the previous fix. Fixes closer together than
+          // this are mostly GPS jitter, and taking a bearing off them would
+          // make the badge spin on the spot while the driver stands still.
+          final prevLat = _liveDriverLat;
+          final prevLng = _liveDriverLng;
+          var bearing = _driverBearing;
+          if (prevLat != null && prevLng != null) {
+            final movedEnough = (nextLat - prevLat).abs() > 0.00002 ||
+                (nextLng - prevLng).abs() > 0.00002;
+            if (movedEnough) {
+              bearing = bearingBetween(
+                (lat: prevLat, lng: prevLng),
+                (lat: nextLat, lng: nextLng),
+              );
+            }
+          }
           setState(() {
-            _liveDriverLat = lat;
-            _liveDriverLng = lng;
+            _liveDriverLat = nextLat;
+            _liveDriverLng = nextLng;
+            _driverBearing = bearing;
           });
         });
+  }
+
+  /// Fetches the street-following route from the courier to the customer.
+  Future<void> _fetchRoute({
+    required ({double lat, double lng}) origin,
+    required ({double lat, double lng}) destination,
+  }) async {
+    if (_routeFetchInFlight) return;
+    _routeFetchInFlight = true;
+    _lastRouteDestination = destination;
+    _lastRouteFetchAt = DateTime.now();
+    try {
+      final route = await RouteService.fetchDrivingRoute(
+        origin: origin,
+        destination: destination,
+      );
+      if (route == null || !mounted) return;
+      setState(() => _route = route);
+    } finally {
+      _routeFetchInFlight = false;
+    }
   }
 
   @override
@@ -148,17 +214,75 @@ class _OrderTrackingScreenState extends ConsumerState<OrderTrackingScreen> {
         isCourier ? currentOrder.pickupAddress?.longitude : _restaurantLng;
     final hasPickup = pickupLat != null && pickupLng != null;
 
+    // Frame driver + pickup + delivery once, on the first paint that has a
+    // real driver fix, so the partner immediately sees the courier's position
+    // relative to their store and the customer instead of a map centred on
+    // the delivery address alone. Mirrors the client and driver apps.
+    final showMap = currentOrder.status == OrderStatus.onTheWay &&
+        driverLat != null &&
+        driverLng != null;
+    // Re-route on deviation: the courier staying on the drawn line costs no
+    // API calls however far they drive, but turning down a different street
+    // redraws the line (and its ETA) within a block.
+    if (showMap) {
+      final routeDestination = (
+        lat: currentOrder.deliveryAddress.latitude,
+        lng: currentOrder.deliveryAddress.longitude
+      );
+      final destinationChanged = _lastRouteDestination != routeDestination;
+      final wentAnotherWay = RouteFreshness.isOffRoute(
+        _route?.points,
+        (lat: driverLat, lng: driverLng),
+      );
+      final rateLimitPassed = _lastRouteFetchAt == null ||
+          DateTime.now().difference(_lastRouteFetchAt!) >
+              RouteFreshness.kMinRefetchInterval;
+      if (!_routeFetchInFlight &&
+          (destinationChanged || (wentAnotherWay && rateLimitPassed))) {
+        _fetchRoute(
+          origin: (lat: driverLat, lng: driverLng),
+          destination: routeDestination,
+        );
+      }
+    }
+
+    if (showMap && !_boundsFitted) {
+      _boundsFitted = true;
+      final points = <({double lat, double lng})>[
+        (lat: driverLat, lng: driverLng),
+        (
+          lat: currentOrder.deliveryAddress.latitude,
+          lng: currentOrder.deliveryAddress.longitude
+        ),
+        if (hasPickup) (lat: pickupLat, lng: pickupLng),
+      ];
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _mapController.fitBounds(points);
+      });
+    }
+
     return Scaffold(
       body: Stack(
         children: [
           // Map — shown when driver location is available
-          if (currentOrder.status == OrderStatus.onTheWay &&
-              driverLat != null && driverLng != null)
+          if (showMap)
             AppMap(
               controller: _mapController,
-              initialLatitude: currentOrder.deliveryAddress.latitude,
-              initialLongitude: currentOrder.deliveryAddress.longitude,
-              initialZoom: 14,
+              // Centre the first frame between the courier and the customer
+              // rather than on the customer alone, so both are likely already
+              // in view before the fitBounds animation above catches up.
+              initialLatitude:
+                  (driverLat + currentOrder.deliveryAddress.latitude) / 2,
+              initialLongitude:
+                  (driverLng + currentOrder.deliveryAddress.longitude) / 2,
+              initialZoom: 12,
+              polyline: _route?.points,
+              // The details sheet covers the lower ~45% of the screen; telling
+              // the map about it keeps Google's own controls clear of the
+              // sheet and centres fitted routes in the part still visible.
+              contentPadding: EdgeInsets.only(
+                bottom: MediaQuery.of(context).size.height * 0.45,
+              ),
               markers: {
                 AppMapMarker(
                   id: 'delivery',
@@ -181,6 +305,7 @@ class _OrderTrackingScreenState extends ConsumerState<OrderTrackingScreen> {
                   longitude: driverLng,
                   kind: AppMapMarkerKind.driver,
                   title: currentOrder.driverName ?? 'Driver',
+                  bearing: _driverBearing,
                 ),
               },
             )
@@ -192,6 +317,37 @@ class _OrderTrackingScreenState extends ConsumerState<OrderTrackingScreen> {
                   isCourier ? Icons.local_shipping : Icons.restaurant,
                   size: 100,
                   color: AppColors.textLight.withValues(alpha: 0.3),
+                ),
+              ),
+            ),
+
+          // Recenter — reframes the same three points as the initial auto-fit,
+          // so the partner can always get back to the whole picture after
+          // panning around the map by hand.
+          if (showMap)
+            Positioned(
+              right: 16,
+              bottom: MediaQuery.of(context).size.height * 0.45 + 16,
+              child: Material(
+                color: Colors.white,
+                shape: const CircleBorder(),
+                elevation: 4,
+                shadowColor: Colors.black.withValues(alpha: 0.2),
+                child: InkWell(
+                  customBorder: const CircleBorder(),
+                  onTap: () => _mapController.fitBounds([
+                    (lat: driverLat, lng: driverLng),
+                    (
+                      lat: currentOrder.deliveryAddress.latitude,
+                      lng: currentOrder.deliveryAddress.longitude
+                    ),
+                    if (hasPickup) (lat: pickupLat, lng: pickupLng),
+                  ]),
+                  child: const Padding(
+                    padding: EdgeInsets.all(12),
+                    child: Icon(Icons.my_location_rounded,
+                        color: AppColors.primary, size: 22),
+                  ),
                 ),
               ),
             ),
@@ -404,13 +560,79 @@ class _OrderTrackingScreenState extends ConsumerState<OrderTrackingScreen> {
                     ),
                     const SizedBox(height: 12),
 
+                    // Customer contact for every order type, not just courier.
+                    // A shop chasing a late driver or checking an address on a
+                    // normal food order had no number here at all — the block
+                    // below was nested under `isCourier`. The number falls back
+                    // customerPhone -> delivery address, because
+                    // `recipient_phone` is only populated for courier jobs.
+                    if (!isCourier) ...[
+                      Builder(builder: (_) {
+                        final phone = [
+                          currentOrder.customerPhone,
+                          currentOrder.deliveryAddress.phone,
+                        ].firstWhere((p) => (p ?? '').isNotEmpty,
+                            orElse: () => null);
+                        if (phone == null) {
+                          return _DetailRow(label: l.phone, value: 'N/A');
+                        }
+                        return Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 6),
+                          child: Row(
+                            children: [
+                              SizedBox(
+                                width: 110,
+                                child: Text(
+                                  l.phone,
+                                  style: const TextStyle(
+                                    color: AppColors.textSecondary,
+                                    fontSize: 13,
+                                  ),
+                                ),
+                              ),
+                              Expanded(
+                                child: CustomerContact(
+                                    phone: phone, compact: true),
+                              ),
+                            ],
+                          ),
+                        );
+                      }),
+                    ],
+
                     if (isCourier) ...[
                       _DetailRow(
                           label: l.recipient,
                           value: currentOrder.recipientName ?? 'N/A'),
-                      _DetailRow(
-                          label: l.phone,
-                          value: currentOrder.recipientPhone ?? 'N/A'),
+                      // The recipient's number was printed as plain text with
+                      // no way to act on it — the partner had to retype it into
+                      // the dialler. Now it carries call and WhatsApp buttons.
+                      if ((currentOrder.recipientPhone ?? '').isNotEmpty)
+                        Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 6),
+                          child: Row(
+                            children: [
+                              SizedBox(
+                                width: 110,
+                                child: Text(
+                                  l.phone,
+                                  style: const TextStyle(
+                                    color: AppColors.textSecondary,
+                                    fontSize: 13,
+                                  ),
+                                ),
+                              ),
+                              Expanded(
+                                child: CustomerContact(
+                                  phone: currentOrder.recipientPhone!,
+                                  compact: true,
+                                ),
+                              ),
+                            ],
+                          ),
+                        )
+                      else
+                        _DetailRow(label: l.phone, value: 'N/A'),
                       _DetailRow(
                           label: l.item,
                           value:

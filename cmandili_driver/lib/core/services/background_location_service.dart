@@ -317,7 +317,13 @@ void _onStart(ServiceInstance service) async {
   posStream = Geolocator.getPositionStream(
     locationSettings: const LocationSettings(
       accuracy: LocationAccuracy.high,
-      distanceFilter: 30, // Mise à jour de la position uniquement après 30 mètres de déplacement
+      // 10 m rather than 30 m. At 30 m the position the customer sees lags a
+      // third of a block behind the driver, which reads as the marker
+      // stuttering or standing still on a moving scooter. 10 m is still
+      // coarse enough not to drain the battery on a long shift — the
+      // foreground tracking screen runs a tighter 5 m navigation-grade
+      // stream while an order is actually open.
+      distanceFilter: 10,
     ),
   ).listen((pos) async {
     await pushLocation(pos);

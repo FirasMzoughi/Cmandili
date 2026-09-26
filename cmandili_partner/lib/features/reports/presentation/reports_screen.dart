@@ -9,7 +9,10 @@ final _reportsProvider = FutureProvider.family<Map<String, dynamic>, String>((re
   final profile = await ref.watch(partnerProfileProvider.future);
   if (profile == null) return _emptyStats();
 
-  final filterColumn = profile.partnerType == 'restaurant' ? 'restaurant_id' : 'supermarket_id';
+  // Generic vendors ride restaurant_id like restaurants do; only supermarkets
+  // use supermarket_id. See partner_order_repository.getPartnerOrders.
+  final filterColumn =
+      profile.partnerType == 'supermarket' ? 'supermarket_id' : 'restaurant_id';
 
   final now = DateTime.now();
   DateTime start;
